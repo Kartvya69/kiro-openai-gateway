@@ -54,6 +54,7 @@ from kiro_gateway.auth import KiroAuthManager
 from kiro_gateway.cache import ModelInfoCache
 from kiro_gateway.routes import router
 from kiro_gateway.exceptions import validation_exception_handler
+from kiro_gateway.token_refresh import IdCTokenRefresher
 
 
 # --- Loguru Configuration ---
@@ -221,6 +222,7 @@ async def lifespan(app: FastAPI):
     Creates and initializes:
     - KiroAuthManager for token management
     - ModelInfoCache for model caching
+    - IdCTokenRefresher for automatic token refresh (if using IdC auth)
     """
     logger.info("Starting application... Creating state managers.")
     
@@ -235,7 +237,31 @@ async def lifespan(app: FastAPI):
     # Create model cache
     app.state.model_cache = ModelInfoCache()
     
+    # Start automatic token refresh for IdC auth (every 30 minutes)
+    app.state.token_refresher = None
+    if KIRO_CREDS_FILE:
+        try:
+            from pathlib import Path
+            import json
+            creds_path = Path(KIRO_CREDS_FILE).expanduser()
+            if creds_path.exists():
+                with open(creds_path, 'r') as f:
+                    creds = json.load(f)
+                if creds.get('authMethod') == 'IdC':
+                    app.state.token_refresher = IdCTokenRefresher(
+                        KIRO_CREDS_FILE,
+                        refresh_interval=1800  # 30 minutes
+                    )
+                    app.state.token_refresher.start()
+                    logger.info("IdC token auto-refresh enabled (30 min interval)")
+        except Exception as e:
+            logger.warning(f"Could not start token auto-refresh: {e}")
+    
     yield
+    
+    # Stop token refresher on shutdown
+    if app.state.token_refresher:
+        app.state.token_refresher.stop()
     
     logger.info("Shutting down application.")
 
