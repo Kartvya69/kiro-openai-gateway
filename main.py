@@ -237,7 +237,7 @@ async def lifespan(app: FastAPI):
     # Create model cache
     app.state.model_cache = ModelInfoCache()
     
-    # Start automatic token refresh for IdC auth (every 30 minutes)
+    # Start automatic token refresh for IdC auth (every 5 minutes)
     app.state.token_refresher = None
     if KIRO_CREDS_FILE:
         try:
@@ -250,10 +250,10 @@ async def lifespan(app: FastAPI):
                 if creds.get('authMethod') == 'IdC':
                     app.state.token_refresher = IdCTokenRefresher(
                         KIRO_CREDS_FILE,
-                        refresh_interval=1800  # 30 minutes
+                        refresh_interval=300  # 5 minutes
                     )
                     app.state.token_refresher.start()
-                    logger.info("IdC token auto-refresh enabled (30 min interval)")
+                    logger.info("IdC token auto-refresh enabled (5 min interval)")
         except Exception as e:
             logger.warning(f"Could not start token auto-refresh: {e}")
     

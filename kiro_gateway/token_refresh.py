@@ -145,13 +145,16 @@ class IdCTokenRefresher:
     async def _refresh_loop(self) -> None:
         """Background task that refreshes token periodically."""
         while self._running:
+            # Wait for next refresh interval first
+            await asyncio.sleep(self._refresh_interval)
+            
+            if not self._running:
+                break
+            
             try:
                 await self.refresh_token()
             except Exception as e:
                 logger.error(f"Token refresh failed: {e}")
-            
-            # Wait for next refresh interval
-            await asyncio.sleep(self._refresh_interval)
     
     def start(self) -> None:
         """Start the automatic refresh background task."""
