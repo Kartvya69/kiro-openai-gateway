@@ -249,8 +249,9 @@ async def lifespan(app: FastAPI):
                     creds = json.load(f)
                 if creds.get('authMethod') == 'IdC':
                     app.state.token_refresher = IdCTokenRefresher(KIRO_CREDS_FILE)
-                    # Link refresher to auth manager for token sync
+                    # Link refresher to auth manager for token sync (bidirectional)
                     app.state.token_refresher.set_auth_manager(app.state.auth_manager)
+                    app.state.auth_manager.set_idc_refresher(app.state.token_refresher)
                     app.state.token_refresher.start()
                     logger.info("IdC token auto-refresh enabled (expiration-aware)")
         except Exception as e:

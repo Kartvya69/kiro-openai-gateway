@@ -23,6 +23,7 @@ class IdCTokenRefresher:
     
     Uses AWS SSO OIDC's createToken API with grant_type=refresh_token.
     Requires stored client credentials (_clientId, _clientSecret) from original login.
+    Also watches the credentials file for external changes and hot-reloads tokens.
     """
     
     # Refresh token when it has less than this many seconds until expiration
@@ -31,6 +32,8 @@ class IdCTokenRefresher:
     MIN_REFRESH_INTERVAL = 60  # 1 minute
     # Maximum interval to wait before checking again
     MAX_CHECK_INTERVAL = 300  # 5 minutes
+    # File watch interval for detecting external changes
+    FILE_WATCH_INTERVAL = 2  # Check file every 2 seconds
     
     def __init__(self, creds_file: str, refresh_interval: int = 1800):
         """
@@ -46,7 +49,9 @@ class IdCTokenRefresher:
         self._refresh_interval = refresh_interval
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._file_watch_task: Optional[asyncio.Task] = None
         self._auth_manager = None  # Reference to KiroAuthManager for sync
+        self._last_file_mtime: Optional[float] = None  # Track file modification time
     
     def _get_oidc_token_url(self, region: str) -> str:
         """Get AWS SSO OIDC token endpoint URL."""
@@ -284,27 +289,65 @@ class IdCTokenRefresher:
                     # On failure, retry after minimum interval
                     await asyncio.sleep(self.MIN_REFRESH_INTERVAL)
     
+    async def _file_watch_loop(self) -> None:
+        """Background task that watches for external file changes and hot-reloads tokens."""
+        # Initialize last modification time
+        try:
+            self._last_file_mtime = self._creds_file.stat().st_mtime
+        except Exception:
+            self._last_file_mtime = None
+        
+        while self._running:
+            await asyncio.sleep(self.FILE_WATCH_INTERVAL)
+            
+            if not self._running:
+                break
+            
+            try:
+                current_mtime = self._creds_file.stat().st_mtime
+                if self._last_file_mtime is not None and current_mtime > self._last_file_mtime:
+                    logger.info("Detected external change to credentials file, hot-reloading tokens...")
+                    self._last_file_mtime = current_mtime
+                    
+                    # Reload credentials and sync to auth manager
+                    creds = self._load_credentials()
+                    self._sync_to_auth_manager(creds)
+                    
+                    expires_at_str = creds.get('expiresAt', 'unknown')
+                    logger.info(f"Tokens hot-reloaded from file (expires: {expires_at_str})")
+                elif self._last_file_mtime is None:
+                    self._last_file_mtime = current_mtime
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                logger.warning(f"Error watching credentials file: {e}")
+    
     def start(self) -> None:
-        """Start the automatic refresh background task."""
+        """Start the automatic refresh background task and file watcher."""
         if self._running:
             logger.warning("Token refresher is already running")
             return
         
         self._running = True
         self._task = asyncio.create_task(self._refresh_loop())
+        self._file_watch_task = asyncio.create_task(self._file_watch_loop())
         
         seconds_until_expiry = self._get_seconds_until_expiry()
         if seconds_until_expiry is not None:
             logger.info(f"Token refresh scheduler started (token expires in {seconds_until_expiry:.0f}s)")
         else:
             logger.info("Token refresh scheduler started")
+        logger.info("Credentials file watcher started (hot-reload enabled)")
     
     def stop(self) -> None:
-        """Stop the automatic refresh background task."""
+        """Stop the automatic refresh background task and file watcher."""
         self._running = False
         if self._task:
             self._task.cancel()
             self._task = None
+        if self._file_watch_task:
+            self._file_watch_task.cancel()
+            self._file_watch_task = None
         logger.info("Token refresh scheduler stopped")
 
 

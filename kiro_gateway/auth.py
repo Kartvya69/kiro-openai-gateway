@@ -93,6 +93,8 @@ class KiroAuthManager:
         self._access_token: Optional[str] = None
         self._expires_at: Optional[datetime] = None
         self._lock = asyncio.Lock()
+        self._idc_refresher = None  # Reference to IdCTokenRefresher for fallback
+        self._auth_method: Optional[str] = None  # 'IdC' or other
         
         # Dynamic URLs based on region
         self._refresh_url = get_kiro_refresh_url(region)
@@ -154,6 +156,10 @@ class KiroAuthManager:
                         self._expires_at = datetime.fromisoformat(expires_str)
                 except Exception as e:
                     logger.warning(f"Failed to parse expiresAt: {e}")
+            
+            # Store auth method for fallback logic
+            if 'authMethod' in data:
+                self._auth_method = data['authMethod']
             
             logger.info(f"Credentials loaded from {file_path}")
             
@@ -217,6 +223,7 @@ class KiroAuthManager:
         
         Sends a POST request to Kiro API to obtain a new access token.
         Updates internal state and saves credentials to file.
+        If 401 is received and IdC auth is used, falls back to IdC token refresh.
         
         Raises:
             ValueError: If refresh token is not set or response doesn't contain accessToken
@@ -235,6 +242,23 @@ class KiroAuthManager:
         
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(self._refresh_url, json=payload, headers=headers)
+            
+            # If 401 and using IdC auth, try IdC token refresh
+            if response.status_code == 401 and self._auth_method == 'IdC' and self._idc_refresher:
+                logger.warning("Kiro token refresh returned 401, attempting IdC token refresh...")
+                try:
+                    creds = await self._idc_refresher.refresh_token()
+                    # IdC refresher already syncs to this auth manager via _sync_to_auth_manager
+                    logger.info(f"IdC token refresh successful, expires: {creds.get('expiresAt', 'unknown')}")
+                    return
+                except Exception as e:
+                    logger.error(f"IdC token refresh also failed: {e}")
+                    raise httpx.HTTPStatusError(
+                        f"Both Kiro and IdC token refresh failed: {e}",
+                        request=response.request,
+                        response=response
+                    )
+            
             response.raise_for_status()
             data = response.json()
         
@@ -264,6 +288,15 @@ class KiroAuthManager:
         
         # Save to file
         self._save_credentials_to_file()
+    
+    def set_idc_refresher(self, refresher) -> None:
+        """
+        Set reference to IdCTokenRefresher for fallback refresh.
+        
+        Args:
+            refresher: IdCTokenRefresher instance
+        """
+        self._idc_refresher = refresher
     
     async def get_access_token(self) -> str:
         """
