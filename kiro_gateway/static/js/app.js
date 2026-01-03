@@ -677,19 +677,26 @@ const TOKEN_REFRESH_INTERVAL = 300000; // 5 minutes
 function startTokenAutoRefresh() {
     if (tokenAutoRefreshInterval) return;
     
-    // Refresh tokens periodically
+    // Refresh tokens immediately on startup
+    refreshAllTokensSilent();
+    
+    // Then refresh periodically
     tokenAutoRefreshInterval = setInterval(async () => {
-        try {
-            const response = await api('/ui/accounts/refresh-all', { method: 'POST' });
-            const data = await response.json();
-            if (data.success && data.refreshed_count > 0) {
-                console.log(`Auto-refreshed ${data.refreshed_count} tokens`);
-                loadAccounts();
-            }
-        } catch (e) {
-            console.error('Auto token refresh failed:', e);
-        }
+        refreshAllTokensSilent();
     }, TOKEN_REFRESH_INTERVAL);
+}
+
+async function refreshAllTokensSilent() {
+    try {
+        const response = await api('/ui/accounts/refresh-all', { method: 'POST' });
+        const data = await response.json();
+        if (data.success && data.refreshed_count > 0) {
+            console.log(`Auto-refreshed ${data.refreshed_count} tokens`);
+            loadAccounts();
+        }
+    } catch (e) {
+        console.error('Auto token refresh failed:', e);
+    }
 }
 
 function stopTokenAutoRefresh() {

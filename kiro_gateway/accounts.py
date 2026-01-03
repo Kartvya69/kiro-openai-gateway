@@ -603,6 +603,14 @@ class AccountManager:
     
     async def _auto_refresh_loop(self) -> None:
         """Background task to auto-refresh tokens."""
+        # Refresh immediately on startup
+        try:
+            refreshed = await self.refresh_all_tokens()
+            if refreshed > 0:
+                logger.info(f"Initial auto-refresh: refreshed {refreshed} tokens")
+        except Exception as e:
+            logger.error(f"Error in initial auto-refresh: {e}")
+        
         while True:
             try:
                 await asyncio.sleep(self.REFRESH_INTERVAL)
