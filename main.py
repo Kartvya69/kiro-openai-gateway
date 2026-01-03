@@ -208,13 +208,7 @@ def validate_configuration() -> None:
         logger.error("")
         sys.exit(1)
     
-    # Log successful configuration
-    if KIRO_CLI_DB_FILE:
-        logger.info(f"Using kiro-cli SQLite database: {KIRO_CLI_DB_FILE}")
-    elif KIRO_CREDS_FILE:
-        logger.info(f"Using credentials file: {KIRO_CREDS_FILE}")
-    elif REFRESH_TOKEN:
-        logger.info("Using refresh token from environment")
+    # Note: Credential loading details are logged by KiroAuthManager
 
 
 # Run configuration validation on import
@@ -310,8 +304,9 @@ if __name__ == "__main__":
     import uvicorn
     logger.info("Starting Uvicorn server...")
     
+    # Use string reference to avoid double module import
     uvicorn.run(
-        app,
+        "main:app",
         host="0.0.0.0",
         port=8000,
         log_config=UVICORN_LOG_CONFIG,

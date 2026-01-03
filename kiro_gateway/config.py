@@ -380,8 +380,9 @@ FAKE_REASONING_OPEN_TAGS: List[str] = ["<thinking>", "<think>", "<reasoning>", "
 
 # Maximum size of initial buffer for tag detection (characters).
 # If no thinking tag is found within this limit, content is treated as regular response.
-# Default: 100 characters
-FAKE_REASONING_INITIAL_BUFFER_SIZE: int = 100
+# Lower values = faster first token, but may miss tags with leading whitespace.
+# Default: 30 characters (enough for longest tag + some whitespace)
+FAKE_REASONING_INITIAL_BUFFER_SIZE: int = int(os.getenv("FAKE_REASONING_INITIAL_BUFFER_SIZE", "20"))
 
 
 # ==================================================================================================
