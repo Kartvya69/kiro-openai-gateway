@@ -108,12 +108,18 @@ class KiroAccount(Base):
     @property
     def client_id(self) -> str | None:
         """Get client_id from extra_data (for IdC/Builder ID accounts)."""
-        return self.extra_data.get("client_id") if self.extra_data else None
+        if not self.extra_data:
+            return None
+        # Support both camelCase (from OAuth) and snake_case
+        return self.extra_data.get("clientId") or self.extra_data.get("client_id")
     
     @property
     def client_secret(self) -> str | None:
         """Get client_secret from extra_data (for IdC/Builder ID accounts)."""
-        return self.extra_data.get("client_secret") if self.extra_data else None
+        if not self.extra_data:
+            return None
+        # Support both camelCase (from OAuth) and snake_case
+        return self.extra_data.get("clientSecret") or self.extra_data.get("client_secret")
 
 
 # Global engine and session factory (initialized in init_database)
