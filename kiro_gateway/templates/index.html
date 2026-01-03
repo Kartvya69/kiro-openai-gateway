@@ -73,6 +73,10 @@
                     <i class="fas fa-chart-bar"></i>
                     <span>Usage</span>
                 </a>
+                <a href="#credits" class="nav-item" data-section="credits">
+                    <i class="fas fa-coins"></i>
+                    <span>Credits</span>
+                </a>
                 <a href="#logs" class="nav-item" data-section="logs">
                     <i class="fas fa-file-alt"></i>
                     <span>Logs</span>
@@ -414,6 +418,56 @@
                             <div class="empty-state">
                                 <i class="fas fa-chart-bar"></i>
                                 <p>No accounts to display</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Credits Section -->
+            <section id="credits" class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-coins"></i> Kiro Credits</h2>
+                    <button class="btn btn-secondary" onclick="loadCredits()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+                
+                <!-- Credits Overview Cards -->
+                <div class="usage-overview">
+                    <div class="usage-card total">
+                        <div class="usage-card-icon"><i class="fas fa-coins"></i></div>
+                        <div class="usage-card-content">
+                            <div class="usage-card-value" id="credits-remaining">0</div>
+                            <div class="usage-card-label">Total Remaining</div>
+                        </div>
+                    </div>
+                    <div class="usage-card accounts">
+                        <div class="usage-card-icon"><i class="fas fa-chart-line"></i></div>
+                        <div class="usage-card-content">
+                            <div class="usage-card-value" id="credits-used">0</div>
+                            <div class="usage-card-label">Total Used</div>
+                        </div>
+                    </div>
+                    <div class="usage-card healthy">
+                        <div class="usage-card-icon"><i class="fas fa-percentage"></i></div>
+                        <div class="usage-card-content">
+                            <div class="usage-card-value" id="credits-percentage">0%</div>
+                            <div class="usage-card-label">Usage</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-list"></i> Per-Account Credits</h3>
+                        <span class="usage-meta" id="credits-last-updated">Last updated: --</span>
+                    </div>
+                    <div class="panel-content">
+                        <div id="credits-list" class="usage-list">
+                            <div class="loading">
+                                <div class="spinner"></div>
+                                <p>Loading credits...</p>
                             </div>
                         </div>
                     </div>

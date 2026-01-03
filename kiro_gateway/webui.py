@@ -33,12 +33,15 @@ from loguru import logger
 from pydantic import BaseModel
 
 from kiro_gateway.config import SECRET_KEY, APP_VERSION
+import json as json_module
 from kiro_gateway.accounts import AccountManager
 
 
-# Session tokens (in-memory, simple implementation)
+# Session tokens with file persistence
 _sessions: dict = {}
-SESSION_EXPIRY_HOURS = 24
+SESSION_EXPIRY_DAYS = 30  # Extended to 30 days for longer persistence
+SESSION_FILE = Path(__file__).parent.parent / ".sessions.json"
+_session_cleanup_task: Optional[asyncio.Task] = None
 
 # Server start time for uptime calculation
 _server_start_time = time.time()
@@ -46,6 +49,88 @@ _server_start_time = time.time()
 # Log buffer for SSE streaming
 _log_buffer: deque = deque(maxlen=500)
 _log_subscribers: List[asyncio.Queue] = []
+
+# System info cache
+_system_info_cache: Optional[Dict[str, Any]] = None
+_system_info_cache_time: float = 0
+SYSTEM_INFO_CACHE_TTL = 5  # seconds
+
+
+def _load_sessions_from_file():
+    """Load sessions from persistent storage on startup."""
+    global _sessions
+    try:
+        if SESSION_FILE.exists():
+            with open(SESSION_FILE, 'r') as f:
+                data = json_module.load(f)
+            
+            now = datetime.now(timezone.utc)
+            loaded = 0
+            for token, session in data.items():
+                # Parse expires_at and filter out expired sessions
+                expires_at = datetime.fromisoformat(session["expires_at"])
+                if expires_at > now:
+                    _sessions[token] = {
+                        "created_at": datetime.fromisoformat(session["created_at"]),
+                        "expires_at": expires_at,
+                    }
+                    loaded += 1
+            
+            if loaded > 0:
+                logger.info(f"Loaded {loaded} persistent sessions from file")
+    except Exception as e:
+        logger.warning(f"Could not load sessions from file: {e}")
+
+
+def _save_sessions_to_file():
+    """Save sessions to persistent storage."""
+    try:
+        data = {}
+        for token, session in _sessions.items():
+            data[token] = {
+                "created_at": session["created_at"].isoformat(),
+                "expires_at": session["expires_at"].isoformat(),
+            }
+        
+        with open(SESSION_FILE, 'w') as f:
+            json_module.dump(data, f)
+    except Exception as e:
+        logger.warning(f"Could not save sessions to file: {e}")
+
+
+async def cleanup_expired_sessions():
+    """Background task to clean up expired sessions periodically."""
+    while True:
+        try:
+            await asyncio.sleep(300)  # Run every 5 minutes
+            now = datetime.now(timezone.utc)
+            expired = [token for token, session in _sessions.items() 
+                      if now > session["expires_at"]]
+            for token in expired:
+                del _sessions[token]
+            if expired:
+                logger.debug(f"Cleaned up {len(expired)} expired sessions")
+                _save_sessions_to_file()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Session cleanup error: {e}")
+
+
+def start_session_cleanup():
+    """Start the session cleanup background task and load persistent sessions."""
+    global _session_cleanup_task
+    _load_sessions_from_file()
+    if _session_cleanup_task is None or _session_cleanup_task.done():
+        _session_cleanup_task = asyncio.create_task(cleanup_expired_sessions())
+
+
+def stop_session_cleanup():
+    """Stop the session cleanup background task and save sessions."""
+    global _session_cleanup_task
+    _save_sessions_to_file()
+    if _session_cleanup_task and not _session_cleanup_task.done():
+        _session_cleanup_task.cancel()
 
 
 def add_log_entry(message: str, level: str = "INFO"):
@@ -93,17 +178,23 @@ def _hash_key(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
 
-async def verify_session(session_token: str = Depends(session_header)) -> bool:
-    """Verify session token."""
-    if not session_token:
+async def verify_session(
+    session_token: str = Depends(session_header),
+    token: Optional[str] = None,
+) -> bool:
+    """Verify session token from header or query parameter."""
+    # Try header first, then query param (for SSE)
+    actual_token = session_token or token
+    
+    if not actual_token:
         raise HTTPException(status_code=401, detail="Session token required")
     
-    session = _sessions.get(session_token)
+    session = _sessions.get(actual_token)
     if not session:
         raise HTTPException(status_code=401, detail="Invalid session token")
     
     if datetime.now(timezone.utc) > session["expires_at"]:
-        del _sessions[session_token]
+        del _sessions[actual_token]
         raise HTTPException(status_code=401, detail="Session expired")
     
     return True
@@ -178,12 +269,15 @@ async def login(request: LoginRequest):
     
     # Generate session token
     session_token = _generate_session_token()
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=SESSION_EXPIRY_HOURS)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=SESSION_EXPIRY_DAYS)
     
     _sessions[session_token] = {
         "created_at": datetime.now(timezone.utc),
         "expires_at": expires_at,
     }
+    
+    # Persist sessions to file
+    _save_sessions_to_file()
     
     logger.info("Successful login")
     return LoginResponse(
@@ -198,14 +292,14 @@ async def logout(session_token: str = Depends(session_header)):
     """Logout and invalidate session."""
     if session_token in _sessions:
         del _sessions[session_token]
+        _save_sessions_to_file()
     return {"success": True, "message": "Logged out"}
 
 
 # --- System Info ---
 
-@webui_router.get("/api/system")
-async def get_system_info(_: bool = Depends(verify_session)):
-    """Get system information."""
+def _get_system_info_uncached() -> Dict[str, Any]:
+    """Get system information without caching."""
     uptime_seconds = int(time.time() - _server_start_time)
     hours, remainder = divmod(uptime_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
@@ -225,8 +319,8 @@ async def get_system_info(_: bool = Depends(verify_session)):
     memory_total_mb = memory.total / (1024 * 1024)
     memory_percent = memory.percent
     
-    # CPU info
-    cpu_percent = psutil.cpu_percent(interval=0.1)
+    # CPU info - use interval=None for non-blocking call (returns last measurement)
+    cpu_percent = psutil.cpu_percent(interval=None)
     
     # Process info
     process = psutil.Process()
@@ -251,6 +345,19 @@ async def get_system_info(_: bool = Depends(verify_session)):
         },
         "pid": os.getpid(),
     }
+
+
+@webui_router.get("/api/system")
+async def get_system_info(_: bool = Depends(verify_session)):
+    """Get system information with caching."""
+    global _system_info_cache, _system_info_cache_time
+    
+    now = time.time()
+    if _system_info_cache is None or (now - _system_info_cache_time) > SYSTEM_INFO_CACHE_TTL:
+        _system_info_cache = _get_system_info_uncached()
+        _system_info_cache_time = now
+    
+    return _system_info_cache
 
 
 # --- Config Management ---
@@ -606,12 +713,31 @@ async def get_usage_stats(
 
 # --- Real-time Logs (SSE) ---
 
+def _verify_session_token(token: Optional[str]) -> bool:
+    """Verify session token without raising exceptions."""
+    if not token:
+        return False
+    session = _sessions.get(token)
+    if not session:
+        return False
+    if datetime.now(timezone.utc) > session["expires_at"]:
+        del _sessions[token]
+        return False
+    return True
+
+
 @webui_router.get("/api/logs/stream")
 async def stream_logs(
     request: Request,
+    token: Optional[str] = None,
     _: bool = Depends(verify_session),
 ):
-    """Stream logs via Server-Sent Events."""
+    """Stream logs via Server-Sent Events.
+    
+    Supports authentication via:
+    - X-Session-Token header (standard)
+    - ?token= query parameter (for EventSource which doesn't support headers)
+    """
     queue: asyncio.Queue = asyncio.Queue(maxsize=100)
     _log_subscribers.append(queue)
     
@@ -949,5 +1075,109 @@ async def get_usage_summary(
         "total_accounts": len(accounts),
         "active_accounts": sum(1 for a in accounts if a["is_active"]),
         "status_counts": status_counts,
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# --- Kiro Credits/Usage Limits ---
+
+@webui_router.get("/api/credits")
+async def get_kiro_credits(
+    request: Request,
+    _: bool = Depends(verify_session),
+):
+    """Get Kiro credits/usage limits for all accounts."""
+    account_manager: AccountManager = request.app.state.account_manager
+    
+    results = []
+    errors = []
+    
+    # Get all active accounts
+    async with account_manager._lock:
+        account_ids = list(account_manager._account_ids)
+        auth_managers = dict(account_manager._auth_managers)
+    
+    # Fetch accounts info for names
+    accounts_info = await account_manager.list_accounts()
+    account_names = {a["id"]: a["name"] for a in accounts_info}
+    
+    for account_id in account_ids:
+        auth_manager = auth_managers.get(account_id)
+        if not auth_manager:
+            continue
+        
+        try:
+            usage_data = await auth_manager.get_usage_limits()
+            
+            # Extract relevant data - look for CREDIT or AGENTIC_REQUEST
+            usage_breakdown = usage_data.get("usageBreakdownList", [])
+            credit_usage = None
+            for item in usage_breakdown:
+                resource_type = item.get("resourceType", "")
+                if resource_type in ("CREDIT", "AGENTIC_REQUEST"):
+                    credit_usage = item
+                    break
+            
+            if credit_usage:
+                # Check for free trial info first (has higher limits)
+                free_trial = credit_usage.get("freeTrialInfo", {})
+                if free_trial and free_trial.get("freeTrialStatus") == "ACTIVE":
+                    current = free_trial.get("currentUsage", 0)
+                    limit = free_trial.get("usageLimit", 0)
+                else:
+                    current = credit_usage.get("currentUsage", 0)
+                    limit = credit_usage.get("usageLimit", 0)
+                
+                remaining = max(0, limit - current)
+                percentage_used = (current / limit * 100) if limit > 0 else 0
+                
+                # Check for bonuses
+                bonuses = credit_usage.get("bonuses", [])
+                bonus_total = sum(b.get("usageLimit", 0) - b.get("currentUsage", 0) for b in bonuses)
+                
+                results.append({
+                    "account_id": account_id,
+                    "account_name": account_names.get(account_id, f"Account {account_id}"),
+                    "current_usage": current,
+                    "usage_limit": limit,
+                    "remaining": remaining,
+                    "percentage_used": round(percentage_used, 1),
+                    "bonus_remaining": bonus_total,
+                    "days_until_reset": usage_data.get("daysUntilReset"),
+                    "next_reset_date": usage_data.get("nextDateReset"),
+                    "subscription": usage_data.get("subscriptionInfo", {}).get("subscriptionTitle", "Unknown"),
+                    "email": usage_data.get("userInfo", {}).get("email"),
+                    "free_trial_status": free_trial.get("freeTrialStatus") if free_trial else None,
+                    "free_trial_expiry": free_trial.get("freeTrialExpiry") if free_trial else None,
+                })
+            else:
+                results.append({
+                    "account_id": account_id,
+                    "account_name": account_names.get(account_id, f"Account {account_id}"),
+                    "error": "No credit usage data found",
+                })
+                
+        except Exception as e:
+            logger.warning(f"Failed to get credits for account {account_id}: {e}")
+            errors.append({
+                "account_id": account_id,
+                "account_name": account_names.get(account_id, f"Account {account_id}"),
+                "error": str(e),
+            })
+    
+    # Calculate totals
+    total_remaining = sum(r.get("remaining", 0) for r in results if "remaining" in r)
+    total_limit = sum(r.get("usage_limit", 0) for r in results if "usage_limit" in r)
+    total_used = sum(r.get("current_usage", 0) for r in results if "current_usage" in r)
+    
+    return {
+        "accounts": results,
+        "errors": errors,
+        "totals": {
+            "total_remaining": total_remaining,
+            "total_limit": total_limit,
+            "total_used": total_used,
+            "percentage_used": round((total_used / total_limit * 100) if total_limit > 0 else 0, 1),
+        },
         "last_updated": datetime.now(timezone.utc).isoformat(),
     }

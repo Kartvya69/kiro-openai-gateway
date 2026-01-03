@@ -32,6 +32,9 @@ const accountCount = document.getElementById('account-count');
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     if (sessionToken) {
+        // Immediately show dashboard if we have a token (optimistic)
+        showDashboardImmediate();
+        // Then verify session in background
         checkSession();
     } else {
         showLogin();
@@ -108,7 +111,10 @@ async function checkSession() {
     try {
         const response = await api('/ui/accounts');
         if (response.ok) {
-            showDashboard();
+            // Session valid - load data (dashboard already shown)
+            loadAccounts();
+            loadStats();
+            connectLogStream();
         } else {
             showLogin();
         }
@@ -125,12 +131,23 @@ function showLogin() {
     document.getElementById('secret-key')?.focus();
 }
 
+function showDashboardImmediate() {
+    // Show dashboard immediately without loading data (optimistic UI)
+    loginPage.style.display = 'none';
+    appContainer.classList.add('active');
+    dashboard.classList.add('active');
+}
+
 function showDashboard() {
     loginPage.style.display = 'none';
     appContainer.classList.add('active');
     dashboard.classList.add('active');
     loadAccounts();
     loadStats();
+    connectLogStream();
+    startCreditsAutoRefresh();
+    startAccountsAutoRefresh();
+    startTokenAutoRefresh();
 }
 
 // Login Handler
@@ -176,6 +193,10 @@ async function handleLogout() {
         // Ignore errors
     }
     
+    disconnectLogStream();
+    stopCreditsAutoRefresh();
+    stopAccountsAutoRefresh();
+    stopTokenAutoRefresh();
     localStorage.removeItem('sessionToken');
     sessionToken = null;
     showLogin();
@@ -627,12 +648,56 @@ async function cancelAuth() {
 }
 
 // Auto-refresh accounts every 30 seconds
-setInterval(() => {
-    if (dashboard.classList.contains('active')) {
-        loadAccounts();
-        loadStats();
+let accountsAutoRefreshInterval = null;
+const ACCOUNTS_REFRESH_INTERVAL = 30000; // 30 seconds
+
+function startAccountsAutoRefresh() {
+    if (accountsAutoRefreshInterval) return;
+    
+    // Refresh periodically
+    accountsAutoRefreshInterval = setInterval(() => {
+        if (dashboard.classList.contains('active')) {
+            loadAccounts();
+            loadStats();
+        }
+    }, ACCOUNTS_REFRESH_INTERVAL);
+}
+
+function stopAccountsAutoRefresh() {
+    if (accountsAutoRefreshInterval) {
+        clearInterval(accountsAutoRefreshInterval);
+        accountsAutoRefreshInterval = null;
     }
-}, 30000);
+}
+
+// Auto-refresh tokens periodically (every 5 minutes)
+let tokenAutoRefreshInterval = null;
+const TOKEN_REFRESH_INTERVAL = 300000; // 5 minutes
+
+function startTokenAutoRefresh() {
+    if (tokenAutoRefreshInterval) return;
+    
+    // Refresh tokens periodically
+    tokenAutoRefreshInterval = setInterval(async () => {
+        try {
+            const response = await api('/ui/accounts/refresh-all', { method: 'POST' });
+            const data = await response.json();
+            if (data.success && data.refreshed_count > 0) {
+                console.log(`Auto-refreshed ${data.refreshed_count} tokens`);
+                loadAccounts();
+            }
+        } catch (e) {
+            console.error('Auto token refresh failed:', e);
+        }
+    }, TOKEN_REFRESH_INTERVAL);
+}
+
+function stopTokenAutoRefresh() {
+    if (tokenAutoRefreshInterval) {
+        clearInterval(tokenAutoRefreshInterval);
+        tokenAutoRefreshInterval = null;
+    }
+}
 
 // ============================================
 // NAVIGATION
@@ -653,6 +718,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
         
         // Load data for section
         if (section === 'usage') loadUsageStats();
+        if (section === 'credits') loadCredits();
         if (section === 'accounts') loadAccounts();
         if (section === 'config') loadConfig();
         if (section === 'dashboard') { loadSystemInfo(); loadStats(); }
@@ -831,6 +897,146 @@ function renderUsageList(accounts) {
             </div>
         </div>
     `).join('');
+}
+
+// ============================================
+// KIRO CREDITS
+// ============================================
+
+let creditsAutoRefreshInterval = null;
+const CREDITS_REFRESH_INTERVAL = 60000; // Refresh every 60 seconds
+
+function startCreditsAutoRefresh() {
+    if (creditsAutoRefreshInterval) return;
+    
+    // Load immediately on start
+    loadCredits();
+    
+    // Then refresh periodically
+    creditsAutoRefreshInterval = setInterval(() => {
+        // Only refresh if credits section is active
+        const creditsSection = document.getElementById('credits');
+        if (creditsSection && creditsSection.classList.contains('active')) {
+            loadCredits();
+        }
+    }, CREDITS_REFRESH_INTERVAL);
+}
+
+function stopCreditsAutoRefresh() {
+    if (creditsAutoRefreshInterval) {
+        clearInterval(creditsAutoRefreshInterval);
+        creditsAutoRefreshInterval = null;
+    }
+}
+
+async function loadCredits() {
+    try {
+        const response = await api('/ui/api/credits');
+        const data = await response.json();
+        
+        // Update overview cards
+        animateNumber(document.getElementById('credits-remaining'), data.totals?.total_remaining || 0);
+        animateNumber(document.getElementById('credits-used'), data.totals?.total_used || 0);
+        document.getElementById('credits-percentage').textContent = `${data.totals?.percentage_used || 0}%`;
+        
+        // Update last updated
+        document.getElementById('credits-last-updated').textContent = 
+            `Last updated: ${new Date(data.last_updated).toLocaleTimeString()}`;
+        
+        // Render credits list
+        renderCreditsList(data.accounts, data.errors);
+        
+    } catch (e) {
+        console.error('Failed to load credits:', e);
+        document.getElementById('credits-list').innerHTML = `
+            <div class="empty-state" style="padding: 40px;">
+                <i class="fas fa-exclamation-triangle" style="font-size: 48px; opacity: 0.5; color: var(--danger);"></i>
+                <p style="margin-top: 16px;">Failed to load credits: ${escapeHtml(e.message)}</p>
+            </div>
+        `;
+    }
+}
+
+function renderCreditsList(accounts, errors) {
+    const container = document.getElementById('credits-list');
+    
+    if ((!accounts || accounts.length === 0) && (!errors || errors.length === 0)) {
+        container.innerHTML = `
+            <div class="empty-state" style="padding: 40px;">
+                <i class="fas fa-coins" style="font-size: 48px; opacity: 0.5;"></i>
+                <p style="margin-top: 16px;">No accounts with credits data</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = '';
+    
+    // Render successful accounts
+    if (accounts && accounts.length > 0) {
+        html += accounts.map(account => {
+            if (account.error) {
+                return `
+                    <div class="usage-item" style="border-left: 3px solid var(--warning);">
+                        <div class="usage-item-info">
+                            <div class="usage-item-status warning"></div>
+                            <div>
+                                <div class="usage-item-name">${escapeHtml(account.account_name)}</div>
+                                <div class="usage-item-provider" style="color: var(--warning);">${escapeHtml(account.error)}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            const percentColor = account.percentage_used > 80 ? 'var(--danger)' : 
+                                 account.percentage_used > 50 ? 'var(--warning)' : 'var(--success)';
+            
+            return `
+                <div class="usage-item">
+                    <div class="usage-item-info">
+                        <div class="usage-item-status healthy"></div>
+                        <div>
+                            <div class="usage-item-name">${escapeHtml(account.account_name)}</div>
+                            <div class="usage-item-provider">
+                                ${account.subscription || 'Unknown Plan'}
+                                ${account.email ? ` - ${escapeHtml(account.email)}` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="usage-item-stats" style="text-align: right;">
+                        <div>
+                            <div class="usage-item-count" style="color: ${percentColor};">
+                                ${formatNumber(account.remaining)} / ${formatNumber(account.usage_limit)}
+                            </div>
+                            <div class="usage-item-last">
+                                ${account.percentage_used}% used
+                                ${account.days_until_reset ? ` - Resets in ${account.days_until_reset} days` : ''}
+                                ${account.bonus_remaining > 0 ? ` (+${formatNumber(account.bonus_remaining)} bonus)` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    // Render errors
+    if (errors && errors.length > 0) {
+        html += errors.map(err => `
+            <div class="usage-item" style="border-left: 3px solid var(--danger);">
+                <div class="usage-item-info">
+                    <div class="usage-item-status expired"></div>
+                    <div>
+                        <div class="usage-item-name">${escapeHtml(err.account_name)}</div>
+                        <div class="usage-item-provider" style="color: var(--danger);">Error: ${escapeHtml(err.error)}</div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    container.innerHTML = html;
 }
 
 // ============================================
@@ -1059,6 +1265,169 @@ function showToast(message, type = 'info') {
 }
 
 // ============================================
+// LOG STREAMING (SSE)
+// ============================================
+
+let logEventSource = null;
+let logReconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY = 3000;
+
+function connectLogStream() {
+    if (!sessionToken) return;
+    
+    // Close existing connection
+    if (logEventSource) {
+        logEventSource.close();
+        logEventSource = null;
+    }
+    
+    // Connect with token as query parameter (EventSource doesn't support headers)
+    const url = `${API_BASE}/ui/api/logs/stream?token=${encodeURIComponent(sessionToken)}`;
+    logEventSource = new EventSource(url);
+    
+    logEventSource.onopen = () => {
+        logReconnectAttempts = 0;
+        updateLogConnectionStatus('connected');
+        console.log('Log stream connected');
+    };
+    
+    logEventSource.onmessage = (event) => {
+        try {
+            // Parse the log entry (it's a Python dict string, need to handle it)
+            let entry = event.data;
+            // Convert Python dict format to JSON if needed
+            if (entry.startsWith('{') && entry.includes("'")) {
+                entry = entry.replace(/'/g, '"');
+            }
+            const logEntry = JSON.parse(entry);
+            addLogToUI(logEntry);
+        } catch (e) {
+            // If parsing fails, just display raw data
+            if (event.data && !event.data.startsWith(':')) {
+                addLogToUI({
+                    timestamp: new Date().toISOString(),
+                    level: 'INFO',
+                    message: event.data
+                });
+            }
+        }
+    };
+    
+    logEventSource.onerror = (error) => {
+        console.error('Log stream error:', error);
+        logEventSource.close();
+        logEventSource = null;
+        updateLogConnectionStatus('disconnected');
+        
+        // Attempt reconnection
+        if (logReconnectAttempts < MAX_RECONNECT_ATTEMPTS && sessionToken) {
+            logReconnectAttempts++;
+            console.log(`Reconnecting log stream (attempt ${logReconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+            setTimeout(connectLogStream, RECONNECT_DELAY);
+        } else if (logReconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            console.log('Max reconnect attempts reached, falling back to polling');
+            startLogPolling();
+        }
+    };
+}
+
+function disconnectLogStream() {
+    if (logEventSource) {
+        logEventSource.close();
+        logEventSource = null;
+    }
+    stopLogPolling();
+}
+
+function updateLogConnectionStatus(status) {
+    const container = document.getElementById('logs-container');
+    const statusIndicator = document.getElementById('log-connection-status');
+    
+    if (statusIndicator) {
+        statusIndicator.className = `log-connection-status ${status}`;
+        statusIndicator.title = status === 'connected' ? 'Connected to log stream' : 'Disconnected from log stream';
+    }
+}
+
+function addLogToUI(logEntry) {
+    const container = document.getElementById('logs-container');
+    if (!container) return;
+    
+    // Remove "Connecting..." placeholder if present
+    const placeholder = container.querySelector('.log-entry.info .log-message');
+    if (placeholder && placeholder.textContent.includes('Connecting to log stream')) {
+        container.innerHTML = '';
+    }
+    
+    const time = logEntry.timestamp ? new Date(logEntry.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+    const level = logEntry.level || 'INFO';
+    const message = logEntry.message || '';
+    
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${level.toLowerCase()}`;
+    entry.innerHTML = `
+        <span class="log-time">${escapeHtml(time)}</span>
+        <span class="log-level">${escapeHtml(level)}</span>
+        <span class="log-message">${escapeHtml(message)}</span>
+    `;
+    
+    // Apply current filters
+    const matchesLevel = currentLogFilter === 'all' || level === currentLogFilter;
+    const matchesSearch = !currentLogSearch || message.toLowerCase().includes(currentLogSearch);
+    if (!(matchesLevel && matchesSearch)) {
+        entry.classList.add('hidden');
+    }
+    
+    container.appendChild(entry);
+    
+    // Limit entries to prevent memory issues
+    while (container.children.length > 500) {
+        container.removeChild(container.firstChild);
+    }
+    
+    // Auto-scroll if enabled
+    if (autoScroll) {
+        container.scrollTop = container.scrollHeight;
+    }
+}
+
+// Fallback polling for when SSE fails
+let logPollingInterval = null;
+let lastLogTimestamp = null;
+
+function startLogPolling() {
+    if (logPollingInterval) return;
+    
+    logPollingInterval = setInterval(async () => {
+        try {
+            const response = await api('/ui/api/logs');
+            if (response.ok) {
+                const data = await response.json();
+                const logs = data.logs || [];
+                
+                // Only add new logs
+                logs.forEach(log => {
+                    if (!lastLogTimestamp || log.timestamp > lastLogTimestamp) {
+                        addLogToUI(log);
+                        lastLogTimestamp = log.timestamp;
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('Log polling error:', e);
+        }
+    }, 2000);
+}
+
+function stopLogPolling() {
+    if (logPollingInterval) {
+        clearInterval(logPollingInterval);
+        logPollingInterval = null;
+    }
+}
+
+// ============================================
 // UTILITY FUNCTIONS
 // ============================================
 
@@ -1074,4 +1443,8 @@ function copyToClipboard(text) {
 if (sessionToken) {
     loadSystemInfo();
     loadStats();
+    connectLogStream();
+    startCreditsAutoRefresh();
+    startAccountsAutoRefresh();
+    startTokenAutoRefresh();
 }

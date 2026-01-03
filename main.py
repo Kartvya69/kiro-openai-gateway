@@ -60,7 +60,7 @@ from kiro_gateway.routes import router
 from kiro_gateway.exceptions import validation_exception_handler
 from kiro_gateway.token_refresh import IdCTokenRefresher
 from kiro_gateway.oauth import KiroOAuthManager
-from kiro_gateway.webui import webui_router
+from kiro_gateway.webui import webui_router, start_session_cleanup, stop_session_cleanup
 from kiro_gateway.database import init_database, close_database
 from kiro_gateway.accounts import AccountManager
 
@@ -286,7 +286,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Could not start token auto-refresh: {e}")
     
+    # Start session cleanup background task
+    start_session_cleanup()
+    logger.info("Session cleanup task started")
+    
     yield
+    
+    # Stop session cleanup task
+    stop_session_cleanup()
     
     # Stop token refresher on shutdown
     if app.state.token_refresher:

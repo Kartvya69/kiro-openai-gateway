@@ -357,3 +357,51 @@ class KiroAuthManager:
     def fingerprint(self) -> str:
         """Unique machine fingerprint."""
         return self._fingerprint
+
+    async def get_usage_limits(self) -> dict:
+        """
+        Fetch usage limits from Kiro Q API.
+        
+        Returns:
+            Dictionary with usage data including:
+            - daysUntilReset
+            - nextDateReset
+            - subscriptionInfo
+            - userInfo
+            - usageBreakdownList
+        
+        Raises:
+            httpx.HTTPError: On HTTP request error
+            ValueError: If unable to obtain access token
+        """
+        token = await self.get_access_token()
+        
+        url = f"{self._q_host}/getUsageLimits"
+        params = {
+            "isEmailRequired": "true",
+            "origin": "AI_EDITOR",
+            "resourceType": "AGENTIC_REQUEST",
+        }
+        if self._profile_arn:
+            params["profileArn"] = self._profile_arn
+        
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": f"aws-sdk-js/1.0.27 ua/2.1 os/linux lang/py api/codewhispererruntime#1.0.27 m/E KiroIDE-0.7.45-{self._fingerprint}",
+            "x-amz-user-agent": f"aws-sdk-js/1.0.27 KiroIDE-0.7.45-{self._fingerprint}",
+            "amz-sdk-request": "attempt=1; max=1",
+        }
+        
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(url, params=params, headers=headers)
+            
+            # If 403, try refreshing token and retry once
+            if response.status_code == 403:
+                logger.warning("Received 403 on getUsageLimits, refreshing token...")
+                token = await self.force_refresh()
+                headers["Authorization"] = f"Bearer {token}"
+                response = await client.get(url, params=params, headers=headers)
+            
+            response.raise_for_status()
+            return response.json()
