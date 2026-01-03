@@ -9,6 +9,7 @@ let authPollingInterval = null;
 
 // DOM Elements
 const loginPage = document.getElementById('login-page');
+const appContainer = document.getElementById('app');
 const dashboard = document.getElementById('dashboard');
 const loginForm = document.getElementById('login-form');
 const loginError = document.getElementById('login-error');
@@ -90,12 +91,14 @@ async function checkSession() {
 // Show/Hide Pages
 function showLogin() {
     loginPage.style.display = 'flex';
+    appContainer.classList.remove('active');
     dashboard.classList.remove('active');
     document.getElementById('secret-key')?.focus();
 }
 
 function showDashboard() {
     loginPage.style.display = 'none';
+    appContainer.classList.add('active');
     dashboard.classList.add('active');
     loadAccounts();
     loadStats();
