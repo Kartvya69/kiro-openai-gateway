@@ -35,6 +35,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from kiro_gateway.config import (
@@ -47,7 +48,10 @@ from kiro_gateway.config import (
     KIRO_CREDS_FILE,
     PROXY_API_KEY,
     LOG_LEVEL,
-    _warn_deprecated_debug_setting,
+    OAUTH_CALLBACK_PORT_START,
+    OAUTH_CALLBACK_PORT_END,
+    OAUTH_AUTH_TIMEOUT,
+    OAUTH_POLL_INTERVAL,
     _warn_timeout_configuration,
 )
 from kiro_gateway.auth import KiroAuthManager
@@ -55,6 +59,10 @@ from kiro_gateway.cache import ModelInfoCache
 from kiro_gateway.routes import router
 from kiro_gateway.exceptions import validation_exception_handler
 from kiro_gateway.token_refresh import IdCTokenRefresher
+from kiro_gateway.oauth import KiroOAuthManager
+from kiro_gateway.webui import webui_router
+from kiro_gateway.database import init_database, close_database
+from kiro_gateway.accounts import AccountManager
 
 
 # --- Loguru Configuration ---
@@ -133,28 +141,28 @@ def validate_configuration() -> None:
     """
     errors = []
     
-    # Check if .env file exists
-    env_file = Path(".env")
-    env_example = Path(".env.example")
+    # Check if config.yml file exists
+    config_file = Path("config.yml")
+    config_example = Path("config.example.yml")
     
-    if not env_file.exists():
+    if not config_file.exists():
         errors.append(
-            ".env file not found!\n"
+            "config.yml file not found!\n"
             "\n"
             "To get started:\n"
-            "1. Create .env or rename from .env.example:\n"
-            "   cp .env.example .env\n"
+            "1. Create config.yml or rename from config.example.yml:\n"
+            "   cp config.example.yml config.yml\n"
             "\n"
-            "2. Edit .env and configure your credentials:\n"
-            "   2.1. Set you super-secret password as PROXY_API_KEY\n"
+            "2. Edit config.yml and configure your credentials:\n"
+            "   2.1. Set your super-secret password as proxy_api_key\n"
             "   2.2. Set your Kiro credentials:\n"
-            "      - 1 way: KIRO_CREDS_FILE to your Kiro credentials JSON file\n"
-            "      - 2 way: REFRESH_TOKEN from Kiro IDE traffic\n"
+            "      - 1 way: kiro_creds_file to your Kiro credentials JSON file\n"
+            "      - 2 way: refresh_token from Kiro IDE traffic\n"
             "\n"
             "See README.md for detailed instructions."
         )
     else:
-        # .env exists, check for credentials
+        # config.yml exists, check for credentials
         has_refresh_token = bool(REFRESH_TOKEN)
         has_creds_file = bool(KIRO_CREDS_FILE)
         
@@ -163,22 +171,22 @@ def validate_configuration() -> None:
             creds_path = Path(KIRO_CREDS_FILE).expanduser()
             if not creds_path.exists():
                 has_creds_file = False
-                logger.warning(f"KIRO_CREDS_FILE not found: {KIRO_CREDS_FILE}")
+                logger.warning(f"kiro_creds_file not found: {KIRO_CREDS_FILE}")
         
         if not has_refresh_token and not has_creds_file:
             errors.append(
                 "No Kiro credentials configured!\n"
                 "\n"
-                "   Configure one of the following in your .env file:\n"
+                "   Configure one of the following in your config.yml file:\n"
                 "\n"
-                "Set you super-secret password as PROXY_API_KEY\n"
-                "   PROXY_API_KEY=\"my-super-secret-password-123\"\n"
+                "Set your super-secret password as proxy_api_key\n"
+                "   proxy_api_key: \"my-super-secret-password-123\"\n"
                 "\n"
                 "   Option 1 (Recommended): JSON credentials file\n"
-                "      KIRO_CREDS_FILE=\"path/to/your/kiro-credentials.json\"\n"
+                "      kiro_creds_file: \"path/to/your/kiro-credentials.json\"\n"
                 "\n"
                 "   Option 2: Refresh token\n"
-                "      REFRESH_TOKEN=\"your_refresh_token_here\"\n"
+                "      refresh_token: \"your_refresh_token_here\"\n"
                 "\n"
                 "   See README.md for how to obtain credentials."
             )
@@ -200,14 +208,11 @@ def validate_configuration() -> None:
     if KIRO_CREDS_FILE:
         logger.info(f"Using credentials file: {KIRO_CREDS_FILE}")
     elif REFRESH_TOKEN:
-        logger.info("Using refresh token from environment")
+        logger.info("Using refresh token from config")
 
 
 # Run configuration validation on import
 validate_configuration()
-
-# Warn about deprecated DEBUG_LAST_REQUEST if used
-_warn_deprecated_debug_setting()
 
 # Warn about suboptimal timeout configuration
 _warn_timeout_configuration()
@@ -220,13 +225,26 @@ async def lifespan(app: FastAPI):
     Manages the application lifecycle.
     
     Creates and initializes:
-    - KiroAuthManager for token management
+    - Database connection and AccountManager
+    - KiroAuthManager for token management (fallback)
     - ModelInfoCache for model caching
     - IdCTokenRefresher for automatic token refresh (if using IdC auth)
     """
     logger.info("Starting application... Creating state managers.")
     
-    # Create AuthManager
+    # Initialize database and AccountManager
+    app.state.account_manager = None
+    try:
+        session_factory = await init_database()
+        app.state.account_manager = AccountManager(session_factory)
+        await app.state.account_manager.load_accounts()
+        app.state.account_manager.start_auto_refresh()
+        logger.info(f"AccountManager initialized with {app.state.account_manager.account_count} accounts")
+    except Exception as e:
+        logger.warning(f"Could not initialize database: {e}")
+        logger.warning("Running without multi-account support")
+    
+    # Create AuthManager (fallback for single account mode)
     app.state.auth_manager = KiroAuthManager(
         refresh_token=REFRESH_TOKEN,
         profile_arn=PROFILE_ARN,
@@ -236,6 +254,17 @@ async def lifespan(app: FastAPI):
     
     # Create model cache
     app.state.model_cache = ModelInfoCache()
+    
+    # Create OAuth manager
+    creds_file = KIRO_CREDS_FILE if KIRO_CREDS_FILE else "auth.json"
+    app.state.oauth_manager = KiroOAuthManager(
+        credentials_file=creds_file,
+        callback_port_start=OAUTH_CALLBACK_PORT_START,
+        callback_port_end=OAUTH_CALLBACK_PORT_END,
+        auth_timeout=OAUTH_AUTH_TIMEOUT,
+        poll_interval=OAUTH_POLL_INTERVAL,
+    )
+    logger.info("OAuth manager initialized")
     
     # Start automatic token refresh for IdC auth
     app.state.token_refresher = None
@@ -262,6 +291,13 @@ async def lifespan(app: FastAPI):
     # Stop token refresher on shutdown
     if app.state.token_refresher:
         app.state.token_refresher.stop()
+    
+    # Stop account manager auto-refresh
+    if app.state.account_manager:
+        app.state.account_manager.stop_auto_refresh()
+    
+    # Close database connection
+    await close_database()
     
     logger.info("Shutting down application.")
 
@@ -291,8 +327,15 @@ app.add_middleware(
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 
+# --- Static Files ---
+static_dir = Path(__file__).parent / "kiro_gateway" / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
 # --- Route Registration ---
 app.include_router(router)
+app.include_router(webui_router)
 
 
 # --- Uvicorn log config ---

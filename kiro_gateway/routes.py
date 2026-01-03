@@ -44,6 +44,9 @@ from kiro_gateway.models import (
     OpenAIModel,
     ModelList,
     ChatCompletionRequest,
+    OAuthStartRequest,
+    OAuthStartResponse,
+    OAuthStatusResponse,
 )
 from kiro_gateway.auth import KiroAuthManager
 from kiro_gateway.cache import ModelInfoCache
@@ -195,7 +198,17 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
     """
     logger.info(f"Request to /v1/chat/completions (model={request_data.model}, stream={request_data.stream})")
     
-    auth_manager: KiroAuthManager = request.app.state.auth_manager
+    # Try to get auth_manager from AccountManager (multi-account mode)
+    # Fall back to single auth_manager if AccountManager not available
+    account_manager = getattr(request.app.state, 'account_manager', None)
+    if account_manager and account_manager.account_count > 0:
+        auth_manager = await account_manager.get_next_account()
+        if not auth_manager:
+            logger.warning("No healthy accounts available, falling back to default auth_manager")
+            auth_manager = request.app.state.auth_manager
+    else:
+        auth_manager: KiroAuthManager = request.app.state.auth_manager
+    
     model_cache: ModelInfoCache = request.app.state.model_cache
     
     # Prepare debug logs
@@ -386,3 +399,125 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
         if debug_logger:
             debug_logger.flush_on_error(500, str(e))
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+
+# ==================================================================================================
+# OAuth Endpoints
+# ==================================================================================================
+
+@router.post("/auth/kiro/start", response_model=OAuthStartResponse)
+async def start_kiro_auth(request: Request, auth_request: OAuthStartRequest):
+    """
+    Start Kiro OAuth authentication flow.
+    
+    Supports:
+    - "google": Google social auth
+    - "github": GitHub social auth
+    - "builder-id": AWS Builder ID (device code flow)
+    
+    Args:
+        request: FastAPI Request for accessing app.state
+        auth_request: OAuth start request with method
+    
+    Returns:
+        OAuthStartResponse with auth URL and details
+    """
+    from kiro_gateway.oauth import KiroOAuthManager
+    
+    oauth_manager: KiroOAuthManager = request.app.state.oauth_manager
+    method = auth_request.method.lower()
+    
+    logger.info(f"Starting Kiro OAuth authentication (method={method})")
+    
+    try:
+        if method in ("google", "github"):
+            provider = "Google" if method == "google" else "Github"
+            result = await oauth_manager.start_social_auth(
+                provider=provider,
+                port=auth_request.port,
+            )
+        elif method == "builder-id":
+            result = await oauth_manager.start_builder_id_auth()
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid auth method: {method}. Use 'google', 'github', or 'builder-id'"
+            )
+        
+        return OAuthStartResponse(**result)
+    
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"OAuth start error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/auth/kiro/status", response_model=OAuthStatusResponse)
+async def get_kiro_auth_status(request: Request):
+    """
+    Get current Kiro OAuth authentication status.
+    
+    Returns:
+        OAuthStatusResponse with current auth status
+    """
+    from kiro_gateway.oauth import KiroOAuthManager
+    
+    oauth_manager: KiroOAuthManager = request.app.state.oauth_manager
+    status = oauth_manager.get_auth_status()
+    
+    if status is None:
+        return OAuthStatusResponse(in_progress=False)
+    
+    return OAuthStatusResponse(**status)
+
+
+@router.post("/auth/kiro/cancel")
+async def cancel_kiro_auth(request: Request):
+    """
+    Cancel ongoing Kiro OAuth authentication.
+    
+    Returns:
+        Success message
+    """
+    from kiro_gateway.oauth import KiroOAuthManager
+    
+    oauth_manager: KiroOAuthManager = request.app.state.oauth_manager
+    await oauth_manager.cancel_auth()
+    
+    logger.info("Kiro OAuth authentication cancelled")
+    
+    return {"status": "ok", "message": "Authentication cancelled"}
+
+
+@router.post("/auth/kiro/wait")
+async def wait_for_kiro_auth(request: Request):
+    """
+    Wait for ongoing Kiro OAuth authentication to complete.
+    
+    This is a blocking endpoint that waits until auth completes or times out.
+    
+    Returns:
+        Token data on success
+    
+    Raises:
+        HTTPException: On timeout, error, or no auth in progress
+    """
+    from kiro_gateway.oauth import KiroOAuthManager
+    
+    oauth_manager: KiroOAuthManager = request.app.state.oauth_manager
+    
+    try:
+        result = await oauth_manager.wait_for_auth()
+        logger.info("Kiro OAuth authentication completed successfully")
+        return {
+            "status": "ok",
+            "message": "Authentication successful",
+            "credentials_file": str(oauth_manager.credentials_file),
+        }
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except TimeoutError as e:
+        raise HTTPException(status_code=408, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))

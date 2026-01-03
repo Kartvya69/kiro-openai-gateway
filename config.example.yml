@@ -1,0 +1,93 @@
+# Kiro OpenAI Gateway - Configuration File
+# Copy this file to config.yml and fill in your values
+
+# ===========================================
+# REQUIRED
+# ===========================================
+
+# Password to protect YOUR proxy server
+# This is NOT a token from anywhere - YOU make it up!
+# Use this same value as api_key when connecting to your gateway
+proxy_api_key: "my-super-secret-password-123"
+
+# Secret key for Web UI login (separate from proxy_api_key)
+# Use this to login at http://localhost:8000/ui
+secret_key: "my-webui-secret-key"
+
+# ===========================================
+# FIRST WAY: JSON credentials file
+# ===========================================
+
+# Path to JSON credentials file (alternative to refresh_token)
+kiro_creds_file: "~/.aws/sso/cache/kiro-auth-token.json"
+
+# ===========================================
+# SECOND WAY: Kiro refresh token
+# ===========================================
+
+# Your Kiro refresh token obtained from Kiro IDE traffic.
+# (Alternative to kiro_creds_file)
+# refresh_token: "your_kiro_refresh_token_here"
+
+# ===========================================
+# OPTIONAL
+# ===========================================
+
+# AWS CodeWhisperer profile ARN (usually auto-detected)
+# profile_arn: "arn:aws:codewhisperer:us-east-1:..."
+
+# AWS region (default: us-east-1)
+kiro_region: "us-east-1"
+
+# ===========================================
+# LOGGING
+# ===========================================
+
+# Log level: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Default: INFO (recommended for production)
+log_level: "INFO"
+
+# ===========================================
+# FIRST TOKEN TIMEOUT (Streaming Retry)
+# ===========================================
+
+# Timeout for waiting for the first token from the model (in seconds).
+first_token_timeout: 15
+
+# Maximum number of retry attempts when first token timeout occurs.
+first_token_max_retries: 3
+
+# Read timeout for streaming responses (in seconds).
+streaming_read_timeout: 300
+
+# ===========================================
+# TOOL DESCRIPTION
+# ===========================================
+
+# Maximum length of tool description in characters.
+tool_description_max_length: 10000
+
+# ===========================================
+# DEBUG (for development only)
+# ===========================================
+
+# Debug logging mode: off, errors, all
+debug_mode: "off"
+
+# Directory for debug log files
+debug_dir: "debug_logs"
+
+# ===========================================
+# OAUTH SETTINGS (Sign-up / Authentication)
+# ===========================================
+
+oauth:
+  # Port range for OAuth callback server (localhost)
+  callback_port_start: 19876
+  callback_port_end: 19880
+  
+  # Timeout for OAuth authentication (in seconds)
+  auth_timeout: 600
+  
+  # Polling interval for device code flow (in seconds)
+  poll_interval: 5

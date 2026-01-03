@@ -4,8 +4,12 @@ uvicorn[standard]
 httpx
 loguru
 requests
-python-dotenv
+pyyaml
 tiktoken
+sqlalchemy[asyncio]
+asyncpg
+python-dotenv
+psutil
 
 # Testing dependencies
 pytest

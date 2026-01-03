@@ -86,7 +86,8 @@ def mock_kiro_token_response(valid_kiro_token):
 @pytest.fixture
 def valid_proxy_api_key():
     """Возвращает валидный API ключ прокси (из config)."""
-    return "changeme_proxy_secret"
+    from kiro_gateway.config import PROXY_API_KEY
+    return PROXY_API_KEY
 
 
 @pytest.fixture

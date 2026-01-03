@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiro Gateway - Management Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+</head>
+<body>
+    <!-- Login Page -->
+    <div id="login-page" class="login-container">
+        <div class="login-box">
+            <div class="logo">K</div>
+            <h1>Kiro Gateway</h1>
+            <p class="subtitle">Enter your secret key to access the console</p>
+            
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="secret-key">Secret Key</label>
+                    <input type="password" id="secret-key" placeholder="Enter your secret_key" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary">Sign In</button>
+            </form>
+            
+            <p id="login-error" class="error-message"></p>
+        </div>
+    </div>
+    
+    <!-- Main App -->
+    <div id="app" class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">K</div>
+                <div class="brand">
+                    <h1>Kiro Gateway</h1>
+                    <span class="version" id="app-version">v1.0.7</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#dashboard" class="nav-item active" data-section="dashboard">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#config" class="nav-item" data-section="config">
+                    <i class="fas fa-cog"></i>
+                    <span>Configuration</span>
+                </a>
+                <a href="#accounts" class="nav-item" data-section="accounts">
+                    <i class="fas fa-users"></i>
+                    <span>Accounts</span>
+                </a>
+                <a href="#usage" class="nav-item" data-section="usage">
+                    <i class="fas fa-chart-bar"></i>
+                    <span>Usage</span>
+                </a>
+                <a href="#logs" class="nav-item" data-section="logs">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Logs</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <button id="logout-btn" class="btn btn-secondary btn-sm">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </aside>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Section -->
+            <section id="dashboard" class="section active">
+                <div class="section-header">
+                    <h2><i class="fas fa-tachometer-alt"></i> Dashboard</h2>
+                    <span class="status-badge online" id="server-status">
+                        <i class="fas fa-circle"></i> Online
+                    </span>
+                </div>
+                
+                <!-- Stats Grid -->
+                <div class="stats-grid">
+                    <div class="stat-card accent">
+                        <div class="stat-icon"><i class="fas fa-clock"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-uptime">--</div>
+                            <div class="stat-label">Uptime</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-users"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-accounts">0</div>
+                            <div class="stat-label">Accounts</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-healthy">0</div>
+                            <div class="stat-label">Healthy</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-exchange-alt"></i></div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-requests">0</div>
+                            <div class="stat-label">Requests</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- System Info Panel -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-server"></i> System Information</h3>
+                        <button class="btn btn-sm btn-secondary" onclick="loadSystemInfo()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="panel-content">
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-label"><i class="fas fa-tag"></i> Version</span>
+                                <span class="info-value" id="sys-version">--</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label"><i class="fab fa-python"></i> Python</span>
+                                <span class="info-value" id="sys-python">--</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label"><i class="fas fa-desktop"></i> Platform</span>
+                                <span class="info-value" id="sys-platform">--</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label"><i class="fas fa-clock"></i> Server Time</span>
+                                <span class="info-value" id="sys-time">--</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label"><i class="fas fa-memory"></i> Memory</span>
+                                <span class="info-value" id="sys-memory">--</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label"><i class="fas fa-microchip"></i> CPU</span>
+                                <span class="info-value" id="sys-cpu">--</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label"><i class="fas fa-cogs"></i> PID</span>
+                                <span class="info-value" id="sys-pid">--</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label"><i class="fas fa-random"></i> Load Balancing</span>
+                                <span class="info-value">Round-Robin</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- API Examples Panel -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-code"></i> API Usage Examples</h3>
+                    </div>
+                    <div class="panel-content">
+                        <div class="api-example">
+                            <div class="example-header">
+                                <span class="method">POST</span>
+                                <code>/v1/chat/completions</code>
+                                <button class="btn btn-sm btn-icon" onclick="copyToClipboard(this.parentElement.nextElementSibling.textContent)">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                            <pre class="example-code">curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_PROXY_API_KEY" \
+  -d '{
+    "model": "claude-sonnet-4-5",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": true
+  }'</pre>
+                        </div>
+                        <div class="api-example">
+                            <div class="example-header">
+                                <span class="method">GET</span>
+                                <code>/v1/models</code>
+                                <button class="btn btn-sm btn-icon" onclick="copyToClipboard(this.parentElement.nextElementSibling.textContent)">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                            <pre class="example-code">curl http://localhost:8000/v1/models \
+  -H "Authorization: Bearer YOUR_PROXY_API_KEY"</pre>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Config Section -->
+            <section id="config" class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-cog"></i> Configuration</h2>
+                    <button class="btn btn-primary" id="save-config-btn" onclick="saveConfig()">
+                        <i class="fas fa-save"></i> Save Changes
+                    </button>
+                </div>
+                
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-key"></i> Authentication</h3>
+                    </div>
+                    <div class="panel-content">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="cfg-proxy-key">Proxy API Key</label>
+                                <input type="password" id="cfg-proxy-key" placeholder="Your proxy API key">
+                                <small>Password to protect your proxy server</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="cfg-secret-key">Secret Key (Web UI)</label>
+                                <input type="password" id="cfg-secret-key" placeholder="Web UI login key">
+                                <small>Password for Web UI access</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-cloud"></i> Kiro Settings</h3>
+                    </div>
+                    <div class="panel-content">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="cfg-region">Region</label>
+                                <select id="cfg-region">
+                                    <option value="us-east-1">us-east-1</option>
+                                    <option value="us-west-2">us-west-2</option>
+                                    <option value="eu-west-1">eu-west-1</option>
+                                    <option value="ap-northeast-1">ap-northeast-1</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="cfg-creds-file">Credentials File</label>
+                                <input type="text" id="cfg-creds-file" placeholder="~/kiro-openai-gateway/auth.json">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-sliders-h"></i> Advanced Settings</h3>
+                    </div>
+                    <div class="panel-content">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="cfg-log-level">Log Level</label>
+                                <select id="cfg-log-level">
+                                    <option value="TRACE">TRACE</option>
+                                    <option value="DEBUG">DEBUG</option>
+                                    <option value="INFO">INFO</option>
+                                    <option value="WARNING">WARNING</option>
+                                    <option value="ERROR">ERROR</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="cfg-debug-mode">Debug Mode</label>
+                                <select id="cfg-debug-mode">
+                                    <option value="off">Off</option>
+                                    <option value="errors">Errors Only</option>
+                                    <option value="all">All</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="cfg-first-token-timeout">First Token Timeout (s)</label>
+                                <input type="number" id="cfg-first-token-timeout" value="15" min="1" max="120">
+                            </div>
+                            <div class="form-group">
+                                <label for="cfg-streaming-timeout">Streaming Timeout (s)</label>
+                                <input type="number" id="cfg-streaming-timeout" value="300" min="30" max="600">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="cfg-max-retries">Max Retries</label>
+                                <input type="number" id="cfg-max-retries" value="3" min="0" max="10">
+                            </div>
+                            <div class="form-group">
+                                <label for="cfg-tool-desc-length">Tool Description Max Length</label>
+                                <input type="number" id="cfg-tool-desc-length" value="10000" min="1000" max="50000">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Accounts Section -->
+            <section id="accounts" class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-users"></i> Accounts <span class="count" id="account-count">0</span></h2>
+                    <div class="section-actions">
+                        <button class="btn btn-secondary btn-sm" onclick="refreshAllTokens()">
+                            <i class="fas fa-sync-alt"></i> Refresh All
+                        </button>
+                        <button class="btn btn-primary" id="add-account-btn" onclick="showAddAccountModal()">
+                            <i class="fas fa-plus"></i> Add Account
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="accounts-stats">
+                    <div class="stat-mini">
+                        <span class="value" id="accounts-total">0</span>
+                        <span class="label">Total</span>
+                    </div>
+                    <div class="stat-mini healthy">
+                        <span class="value" id="accounts-healthy">0</span>
+                        <span class="label">Healthy</span>
+                    </div>
+                    <div class="stat-mini warning">
+                        <span class="value" id="accounts-expiring">0</span>
+                        <span class="label">Expiring</span>
+                    </div>
+                    <div class="stat-mini danger">
+                        <span class="value" id="accounts-expired">0</span>
+                        <span class="label">Expired</span>
+                    </div>
+                </div>
+                
+                <div id="accounts-list" class="accounts-list">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <p>Loading accounts...</p>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Usage Section -->
+            <section id="usage" class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-chart-bar"></i> Usage Statistics</h2>
+                    <button class="btn btn-secondary" onclick="loadUsageStats()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+                
+                <!-- Usage Overview Cards -->
+                <div class="usage-overview">
+                    <div class="usage-card total">
+                        <div class="usage-card-icon"><i class="fas fa-exchange-alt"></i></div>
+                        <div class="usage-card-content">
+                            <div class="usage-card-value" id="usage-total-requests">0</div>
+                            <div class="usage-card-label">Total Requests</div>
+                        </div>
+                    </div>
+                    <div class="usage-card accounts">
+                        <div class="usage-card-icon"><i class="fas fa-users"></i></div>
+                        <div class="usage-card-content">
+                            <div class="usage-card-value" id="usage-active-accounts">0</div>
+                            <div class="usage-card-label">Active Accounts</div>
+                        </div>
+                    </div>
+                    <div class="usage-card healthy">
+                        <div class="usage-card-icon"><i class="fas fa-check-circle"></i></div>
+                        <div class="usage-card-content">
+                            <div class="usage-card-value" id="usage-healthy-accounts">0</div>
+                            <div class="usage-card-label">Healthy</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-chart-pie"></i> Usage Distribution</h3>
+                        <span class="usage-meta" id="usage-last-updated">Last updated: --</span>
+                    </div>
+                    <div class="panel-content">
+                        <div id="usage-chart" class="usage-chart">
+                            <div class="empty-state">
+                                <i class="fas fa-chart-pie"></i>
+                                <p>No usage data available</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-list"></i> Per-Account Details</h3>
+                    </div>
+                    <div class="panel-content">
+                        <div id="usage-list" class="usage-list">
+                            <div class="empty-state">
+                                <i class="fas fa-chart-bar"></i>
+                                <p>No accounts to display</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Logs Section -->
+            <section id="logs" class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-file-alt"></i> Real-time Logs</h2>
+                    <div class="logs-controls">
+                        <div class="log-filters">
+                            <button class="log-filter-btn active" data-level="all" onclick="filterLogs('all')">All</button>
+                            <button class="log-filter-btn" data-level="INFO" onclick="filterLogs('INFO')">INFO</button>
+                            <button class="log-filter-btn" data-level="WARNING" onclick="filterLogs('WARNING')">WARN</button>
+                            <button class="log-filter-btn" data-level="ERROR" onclick="filterLogs('ERROR')">ERROR</button>
+                        </div>
+                        <input type="text" class="log-search" id="log-search" placeholder="Search logs..." oninput="searchLogs(this.value)">
+                        <button class="btn btn-secondary btn-sm" id="toggle-autoscroll" onclick="toggleAutoScroll()">
+                            <i class="fas fa-arrow-down"></i> Auto-scroll: ON
+                        </button>
+                        <button class="btn btn-secondary btn-sm" onclick="downloadLogs()">
+                            <i class="fas fa-download"></i> Download
+                        </button>
+                        <button class="btn btn-danger btn-sm" onclick="clearLogs()">
+                            <i class="fas fa-trash"></i> Clear
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="logs-container" id="logs-container">
+                    <div class="log-entry info">
+                        <span class="log-time">--:--:--</span>
+                        <span class="log-level">INFO</span>
+                        <span class="log-message">Connecting to log stream...</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <!-- Modal -->
+    <div id="modal" class="modal-overlay"></div>
+    
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+    
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

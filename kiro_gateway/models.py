@@ -264,3 +264,67 @@ class ChatCompletionChunk(BaseModel):
     model: str
     choices: List[ChatCompletionChunkChoice]
     usage: Optional[ChatCompletionUsage] = None
+
+
+# ==================================================================================================
+# OAuth Models
+# ==================================================================================================
+
+class OAuthStartRequest(BaseModel):
+    """
+    Request to start OAuth authentication.
+    
+    Attributes:
+        method: Auth method - "google", "github", or "builder-id"
+        port: Optional specific port for callback server
+    """
+    method: str = Field(
+        ...,
+        description="Auth method: 'google', 'github', or 'builder-id'"
+    )
+    port: Optional[int] = Field(
+        None,
+        description="Specific port for callback server (optional)"
+    )
+
+
+class OAuthStartResponse(BaseModel):
+    """
+    Response from starting OAuth authentication.
+    
+    Attributes:
+        auth_url: URL to open in browser for authentication
+        method: Auth method used
+        provider: Provider name (for social auth)
+        port: Callback server port (for social auth)
+        redirect_uri: Full redirect URI (for social auth)
+        user_code: User code to enter (for device code flow)
+        verification_uri: Verification URL (for device code flow)
+        expires_in: Seconds until auth expires
+        interval: Polling interval (for device code flow)
+    """
+    auth_url: str
+    method: str
+    provider: Optional[str] = None
+    port: Optional[int] = None
+    redirect_uri: Optional[str] = None
+    user_code: Optional[str] = None
+    verification_uri: Optional[str] = None
+    expires_in: int = 600
+    interval: Optional[int] = None
+
+
+class OAuthStatusResponse(BaseModel):
+    """
+    Response for OAuth status check.
+    
+    Attributes:
+        in_progress: Whether auth is in progress
+        method: Auth method (if in progress)
+        provider: Provider name (if social auth)
+        started_at: ISO timestamp when auth started
+    """
+    in_progress: bool = False
+    method: Optional[str] = None
+    provider: Optional[str] = None
+    started_at: Optional[str] = None
