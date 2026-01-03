@@ -104,6 +104,16 @@ class KiroAccount(Base):
             return True
         now = datetime.now(timezone.utc)
         return (self.expires_at.timestamp() - now.timestamp()) <= threshold_seconds
+    
+    @property
+    def client_id(self) -> str | None:
+        """Get client_id from extra_data (for IdC/Builder ID accounts)."""
+        return self.extra_data.get("client_id") if self.extra_data else None
+    
+    @property
+    def client_secret(self) -> str | None:
+        """Get client_secret from extra_data (for IdC/Builder ID accounts)."""
+        return self.extra_data.get("client_secret") if self.extra_data else None
 
 
 # Global engine and session factory (initialized in init_database)

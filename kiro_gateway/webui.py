@@ -377,12 +377,15 @@ async def refresh_account_token(
     account_manager: AccountManager = request.app.state.account_manager
     
     try:
-        success = await account_manager.refresh_account_token(account_id)
+        success, message = await account_manager.refresh_account_token(account_id)
         if success:
             add_log_entry(f"Token refreshed for account {account_id}", "INFO")
-            return {"success": True, "message": "Token refreshed successfully"}
+            return {"success": True, "message": message}
         else:
-            raise HTTPException(status_code=400, detail="Failed to refresh token")
+            add_log_entry(f"Token refresh failed for account {account_id}: {message}", "WARNING")
+            raise HTTPException(status_code=400, detail=message)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Token refresh error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
