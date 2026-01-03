@@ -377,8 +377,8 @@ class AccountManager:
         """
         Refresh token for a specific account.
         
-        Uses IdC (AWS SSO OIDC) refresh for builder-id accounts,
-        and Kiro's refreshToken endpoint for other auth methods.
+        For 'social' auth (Builder ID via social login): Uses Kiro's refresh endpoint
+        For other auth methods (IdC, builder-id): Uses AWS SSO OIDC refresh
         
         Args:
             account_id: Account ID to refresh
@@ -396,30 +396,88 @@ class AccountManager:
         if not account:
             return False, "Account not found"
         
-        # Builder ID and IdC accounts use AWS SSO OIDC refresh
-        if account.auth_method in ("builder-id", "IdC"):
+        # 'social' auth uses Kiro's refresh endpoint (just refreshToken in body)
+        # All other auth methods (IdC, builder-id) use AWS SSO OIDC refresh
+        if account.auth_method == "social":
+            return await self._refresh_social_token(account)
+        else:
+            # Non-social auth uses AWS SSO OIDC refresh
             return await self._refresh_idc_token(account)
+    
+    async def _refresh_social_token(self, account: KiroAccount) -> tuple[bool, str]:
+        """
+        Refresh token using Kiro's refresh endpoint (for social auth accounts).
         
-        # Other auth methods use Kiro's refresh endpoint
-        auth_manager = self._auth_managers.get(account_id)
-        if not auth_manager:
-            logger.warning(f"No auth manager for account id={account_id}")
-            return False, "No active session for this account"
+        Args:
+            account: KiroAccount instance
+            
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        if not account.refresh_token:
+            return False, "No refresh token available"
+        
+        region = account.region or "us-east-1"
+        refresh_url = f"https://prod.{region}.auth.desktop.kiro.dev/refreshToken"
+        
+        payload = {
+            "refreshToken": account.refresh_token,
+        }
         
         try:
-            await auth_manager.force_refresh()
-            # Update database with new tokens
-            await self.update_account_tokens(
-                account_id,
-                auth_manager._access_token,
-                auth_manager._refresh_token,
-                auth_manager._expires_at,
-                auth_manager._profile_arn,
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(
+                    refresh_url,
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                response.raise_for_status()
+                data = response.json()
+            
+            new_access_token = data.get("accessToken")
+            new_refresh_token = data.get("refreshToken")
+            new_profile_arn = data.get("profileArn")
+            expires_in = data.get("expiresIn", 3600)
+            
+            if not new_access_token:
+                return False, "No access token in response"
+            
+            # Calculate expiration
+            expires_at = datetime.now(timezone.utc)
+            expires_at = datetime.fromtimestamp(
+                expires_at.timestamp() + expires_in,
+                tz=timezone.utc
             )
-            logger.info(f"Manually refreshed token for account id={account_id}")
+            
+            # Update database
+            await self.update_account_tokens(
+                account.id,
+                new_access_token,
+                new_refresh_token or account.refresh_token,
+                expires_at,
+                new_profile_arn or account.profile_arn,
+            )
+            
+            # Update auth manager if exists
+            auth_manager = self._auth_managers.get(account.id)
+            if auth_manager:
+                auth_manager._access_token = new_access_token
+                if new_refresh_token:
+                    auth_manager._refresh_token = new_refresh_token
+                auth_manager._expires_at = expires_at
+                if new_profile_arn:
+                    auth_manager._profile_arn = new_profile_arn
+            
+            logger.info(f"Social token refreshed for account id={account.id}, expires: {expires_at.isoformat()}")
             return True, "Token refreshed successfully"
+            
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Social token refresh HTTP error for account id={account.id}: {e}")
+            if e.response.status_code == 401:
+                return False, "Refresh token expired. Please re-authenticate."
+            return False, f"HTTP error: {e.response.status_code}"
         except Exception as e:
-            logger.error(f"Failed to refresh token for account id={account_id}: {e}")
+            logger.error(f"Social token refresh failed for account id={account.id}: {e}")
             return False, f"Refresh failed: {str(e)}"
     
     async def _refresh_idc_token(self, account: KiroAccount) -> tuple[bool, str]:
