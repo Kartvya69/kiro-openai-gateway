@@ -396,13 +396,19 @@ class AccountManager:
         if not account:
             return False, "Account not found"
         
-        # 'social' auth uses Kiro's refresh endpoint (just refreshToken in body)
-        # All other auth methods (IdC, builder-id) use AWS SSO OIDC refresh
+        # If client credentials are present, use AWS SSO OIDC refresh
+        # This handles cases where auth_method is "social" but credentials were created via Builder ID
+        if account.client_id and account.client_secret:
+            logger.debug(f"Using IdC refresh for account id={account.id} (has client credentials)")
+            return await self._refresh_idc_token(account)
+        
+        # 'social' auth without client credentials uses Kiro's refresh endpoint
         if account.auth_method == "social":
             return await self._refresh_social_token(account)
-        else:
-            # Non-social auth uses AWS SSO OIDC refresh
-            return await self._refresh_idc_token(account)
+        
+        # Other auth methods (IdC, builder-id) use AWS SSO OIDC refresh
+        # but they require client credentials
+        return False, "Missing client credentials. Please re-authenticate."
     
     async def _refresh_social_token(self, account: KiroAccount) -> tuple[bool, str]:
         """
