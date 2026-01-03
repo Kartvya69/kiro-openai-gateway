@@ -372,6 +372,37 @@ class AccountManager:
         
         return True
     
+    async def refresh_account_token(self, account_id: int) -> bool:
+        """
+        Refresh token for a specific account.
+        
+        Args:
+            account_id: Account ID to refresh
+            
+        Returns:
+            True if refresh succeeded, False otherwise
+        """
+        auth_manager = self._auth_managers.get(account_id)
+        if not auth_manager:
+            logger.warning(f"No auth manager for account id={account_id}")
+            return False
+        
+        try:
+            await auth_manager.force_refresh()
+            # Update database with new tokens
+            await self.update_account_tokens(
+                account_id,
+                auth_manager._access_token,
+                auth_manager._refresh_token,
+                auth_manager._expires_at,
+                auth_manager._profile_arn,
+            )
+            logger.info(f"Manually refreshed token for account id={account_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to refresh token for account id={account_id}: {e}")
+            return False
+    
     async def refresh_all_tokens(self) -> int:
         """
         Refresh tokens for all accounts that are expiring soon.
