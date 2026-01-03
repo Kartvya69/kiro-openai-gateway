@@ -1779,3 +1779,609 @@ body::after {
     flex: 1;
     font-size: 0.9rem;
 }
+
+/* ============================================
+   MOBILE RESPONSIVE DESIGN
+   A refined, touch-first experience with
+   fluid layouts and gestural interactions
+   ============================================ */
+
+/* Mobile Menu Toggle Button */
+.mobile-menu-toggle {
+    display: none;
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 200;
+    width: 48px;
+    height: 48px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    box-shadow: var(--shadow-md);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mobile-menu-toggle span {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: var(--text-primary);
+    border-radius: 2px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mobile-menu-toggle.active {
+    background: var(--accent-primary);
+}
+
+.mobile-menu-toggle.active span {
+    background: var(--bg-primary);
+}
+
+.mobile-menu-toggle.active span:nth-child(1) {
+    transform: rotate(45deg) translate(5px, 5px);
+}
+
+.mobile-menu-toggle.active span:nth-child(2) {
+    opacity: 0;
+    transform: translateX(-10px);
+}
+
+.mobile-menu-toggle.active span:nth-child(3) {
+    transform: rotate(-45deg) translate(5px, -5px);
+}
+
+/* Sidebar Overlay for Mobile */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 90;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.sidebar-overlay.active {
+    opacity: 1;
+}
+
+/* ============================================
+   TABLET BREAKPOINT (768px - 1024px)
+   ============================================ */
+
+@media (max-width: 1024px) {
+    .main-content {
+        padding: 24px;
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .info-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .usage-overview {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .config-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .account-card {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+    
+    .account-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+}
+
+/* ============================================
+   MOBILE BREAKPOINT (< 768px)
+   Full mobile-first redesign
+   ============================================ */
+
+@media (max-width: 768px) {
+    /* Show mobile menu toggle */
+    .mobile-menu-toggle {
+        display: flex;
+    }
+    
+    .sidebar-overlay {
+        display: block;
+        pointer-events: none;
+    }
+    
+    .sidebar-overlay.active {
+        pointer-events: auto;
+    }
+    
+    /* Sidebar becomes slide-out drawer */
+    .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        width: 280px;
+        box-shadow: var(--shadow-lg);
+    }
+    
+    .sidebar.open {
+        transform: translateX(0);
+    }
+    
+    /* Main content takes full width */
+    .main-content {
+        margin-left: 0;
+        padding: 80px 16px 24px;
+        width: 100%;
+    }
+    
+    /* Section header adjustments */
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+    
+    .section-header h2 {
+        font-size: 1.3rem;
+    }
+    
+    .section-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+    
+    .section-actions .btn {
+        flex: 1;
+        min-width: 120px;
+        justify-content: center;
+    }
+    
+    /* Stats grid - single column on mobile */
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
+    .stat-card {
+        padding: 20px;
+    }
+    
+    .stat-value {
+        font-size: 1.8rem;
+    }
+    
+    /* Panels */
+    .panel {
+        border-radius: var(--radius-md);
+    }
+    
+    .panel-header {
+        padding: 16px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    
+    .panel-body {
+        padding: 16px;
+    }
+    
+    /* Info grid */
+    .info-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
+    .info-item {
+        padding: 12px;
+    }
+    
+    /* Account cards - stack vertically */
+    .account-card {
+        padding: 16px;
+        flex-direction: column;
+        gap: 16px;
+    }
+    
+    .account-info {
+        width: 100%;
+    }
+    
+    .account-details h3 {
+        font-size: 1rem;
+    }
+    
+    .account-details .meta {
+        flex-wrap: wrap;
+    }
+    
+    .account-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+    }
+    
+    .account-actions .btn {
+        padding: 10px;
+        justify-content: center;
+    }
+    
+    /* Accounts stats */
+    .accounts-stats {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+    
+    .accounts-stats .stat {
+        padding: 12px;
+    }
+    
+    /* Usage section */
+    .usage-overview {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
+    .usage-card {
+        padding: 20px;
+    }
+    
+    .usage-card .value {
+        font-size: 2rem;
+    }
+    
+    .usage-bar-container {
+        padding: 12px 0;
+    }
+    
+    .usage-bar-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .usage-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 16px;
+    }
+    
+    .usage-item-stats {
+        width: 100%;
+        text-align: left;
+    }
+    
+    /* Config section */
+    .config-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .form-group {
+        margin-bottom: 16px;
+    }
+    
+    .form-group label {
+        font-size: 0.85rem;
+    }
+    
+    .form-group input,
+    .form-group select {
+        padding: 14px;
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+    
+    /* Log section */
+    .log-controls {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .log-filters {
+        flex-wrap: wrap;
+        width: 100%;
+    }
+    
+    .log-filter-btn {
+        flex: 1;
+        min-width: 60px;
+        justify-content: center;
+        padding: 10px 12px;
+    }
+    
+    .log-search {
+        width: 100%;
+    }
+    
+    .log-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+    
+    .log-actions .btn {
+        flex: 1;
+    }
+    
+    .logs-container {
+        max-height: 400px;
+    }
+    
+    .log-entry {
+        padding: 12px;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    
+    .log-time {
+        order: 1;
+        width: auto;
+    }
+    
+    .log-level {
+        order: 2;
+    }
+    
+    .log-message {
+        order: 3;
+        width: 100%;
+        margin-top: 4px;
+    }
+    
+    /* Toast notifications */
+    .toast-container {
+        left: 16px;
+        right: 16px;
+        bottom: 16px;
+    }
+    
+    .toast {
+        min-width: auto;
+        max-width: none;
+        width: 100%;
+    }
+    
+    /* Login page */
+    .login-container {
+        padding: 16px;
+    }
+    
+    .login-box {
+        padding: 32px 24px;
+        max-width: 100%;
+    }
+    
+    .login-box h1 {
+        font-size: 1.6rem;
+    }
+    
+    .login-box .subtitle {
+        font-size: 0.9rem;
+    }
+    
+    /* Modal */
+    .modal-content {
+        margin: 16px;
+        max-height: calc(100vh - 32px);
+        width: calc(100% - 32px);
+        max-width: none;
+    }
+    
+    .modal-header {
+        padding: 20px;
+    }
+    
+    .modal-body {
+        padding: 20px;
+    }
+    
+    .modal-actions {
+        padding: 16px 20px;
+        flex-direction: column;
+    }
+    
+    .modal-actions .btn {
+        width: 100%;
+    }
+    
+    /* Auth method cards */
+    .auth-methods {
+        grid-template-columns: 1fr;
+    }
+    
+    .auth-method-card {
+        padding: 20px;
+    }
+    
+    /* Empty state */
+    .empty-state {
+        padding: 40px 20px;
+    }
+    
+    .empty-state .icon {
+        font-size: 48px;
+    }
+    
+    .empty-state h3 {
+        font-size: 1.2rem;
+    }
+    
+    /* Buttons - larger touch targets */
+    .btn {
+        min-height: 44px;
+        padding: 12px 20px;
+    }
+    
+    .btn-sm {
+        min-height: 40px;
+        padding: 10px 16px;
+    }
+}
+
+/* ============================================
+   SMALL MOBILE BREAKPOINT (< 480px)
+   Extra refinements for smaller screens
+   ============================================ */
+
+@media (max-width: 480px) {
+    .main-content {
+        padding: 72px 12px 20px;
+    }
+    
+    .section-header h2 {
+        font-size: 1.15rem;
+    }
+    
+    .stats-grid {
+        gap: 10px;
+    }
+    
+    .stat-card {
+        padding: 16px;
+    }
+    
+    .stat-value {
+        font-size: 1.5rem;
+    }
+    
+    .stat-label {
+        font-size: 0.75rem;
+    }
+    
+    .account-actions {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .accounts-stats {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .accounts-stats .stat .value {
+        font-size: 1.3rem;
+    }
+    
+    .panel-header h3 {
+        font-size: 1rem;
+    }
+    
+    .log-filter-btn {
+        font-size: 0.75rem;
+        padding: 8px 10px;
+    }
+    
+    .usage-card .value {
+        font-size: 1.6rem;
+    }
+    
+    .toast {
+        padding: 14px 16px;
+    }
+    
+    .toast-message {
+        font-size: 0.85rem;
+    }
+}
+
+/* ============================================
+   TOUCH-FRIENDLY ENHANCEMENTS
+   ============================================ */
+
+@media (hover: none) and (pointer: coarse) {
+    /* Remove hover effects on touch devices */
+    .nav-item:hover {
+        background: transparent;
+        color: var(--text-secondary);
+    }
+    
+    .nav-item.active:hover {
+        background: var(--accent-glow);
+        color: var(--accent-primary);
+    }
+    
+    .btn:hover {
+        transform: none;
+    }
+    
+    /* Add active states for touch feedback */
+    .btn:active {
+        transform: scale(0.97);
+        opacity: 0.9;
+    }
+    
+    .nav-item:active {
+        background: var(--bg-glass);
+    }
+    
+    .account-card:active {
+        transform: scale(0.99);
+    }
+    
+    /* Larger touch targets */
+    .log-filter-btn {
+        min-height: 44px;
+    }
+}
+
+/* ============================================
+   LANDSCAPE MOBILE ADJUSTMENTS
+   ============================================ */
+
+@media (max-width: 768px) and (orientation: landscape) {
+    .main-content {
+        padding-top: 70px;
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .usage-overview {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .modal-content {
+        max-height: calc(100vh - 24px);
+    }
+    
+    .logs-container {
+        max-height: 250px;
+    }
+}
+
+/* ============================================
+   SAFE AREA INSETS (for notched devices)
+   ============================================ */
+
+@supports (padding: env(safe-area-inset-bottom)) {
+    .main-content {
+        padding-bottom: calc(24px + env(safe-area-inset-bottom));
+    }
+    
+    .toast-container {
+        bottom: calc(16px + env(safe-area-inset-bottom));
+    }
+    
+    .sidebar {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+    
+    .mobile-menu-toggle {
+        top: calc(16px + env(safe-area-inset-top));
+        left: calc(16px + env(safe-area-inset-left));
+    }
+}

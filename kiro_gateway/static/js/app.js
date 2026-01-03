@@ -18,6 +18,11 @@ const addAccountBtn = document.getElementById('add-account-btn');
 const accountsList = document.getElementById('accounts-list');
 const modal = document.getElementById('modal');
 
+// Mobile elements
+const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+const sidebar = document.getElementById('sidebar');
+const sidebarOverlay = document.getElementById('sidebar-overlay');
+
 // Stats elements
 const statAccounts = document.getElementById('stat-accounts');
 const statHealthy = document.getElementById('stat-healthy');
@@ -37,6 +42,15 @@ document.addEventListener('DOMContentLoaded', () => {
     logoutBtn?.addEventListener('click', handleLogout);
     addAccountBtn?.addEventListener('click', showAddAccountModal);
     
+    // Mobile menu toggle
+    mobileMenuToggle?.addEventListener('click', toggleMobileMenu);
+    sidebarOverlay?.addEventListener('click', closeMobileMenu);
+    
+    // Close mobile menu when nav item clicked
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', closeMobileMenu);
+    });
+    
     // Close modal on overlay click
     modal?.addEventListener('click', (e) => {
         if (e.target === modal) closeModal();
@@ -47,6 +61,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Escape') closeModal();
     });
 });
+
+// Mobile Menu Functions
+function toggleMobileMenu() {
+    const isOpen = sidebar?.classList.toggle('open');
+    mobileMenuToggle?.classList.toggle('active', isOpen);
+    sidebarOverlay?.classList.toggle('active', isOpen);
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+}
+
+function closeMobileMenu() {
+    sidebar?.classList.remove('open');
+    mobileMenuToggle?.classList.remove('active');
+    sidebarOverlay?.classList.remove('active');
+    document.body.style.overflow = '';
+}
 
 // API Helper
 async function api(endpoint, options = {}) {
