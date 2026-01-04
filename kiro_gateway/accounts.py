@@ -565,9 +565,13 @@ class AccountManager:
             logger.error(f"IdC token refresh failed for account id={account.id}: {e}")
             return False, f"Refresh failed: {str(e)}"
     
-    async def refresh_all_tokens(self) -> int:
+    async def refresh_all_tokens(self, force: bool = False) -> int:
         """
-        Refresh tokens for all accounts that are expiring soon.
+        Refresh tokens for all accounts.
+        
+        Args:
+            force: If True, refresh all tokens regardless of expiration.
+                   If False, only refresh tokens expiring soon.
         
         Returns:
             Number of tokens refreshed
@@ -581,21 +585,14 @@ class AccountManager:
             accounts = result.scalars().all()
         
         for account in accounts:
-            if account.is_token_expiring_soon(TOKEN_REFRESH_THRESHOLD):
+            if force or account.is_token_expiring_soon(TOKEN_REFRESH_THRESHOLD):
                 try:
-                    auth_manager = self._auth_managers.get(account.id)
-                    if auth_manager:
-                        await auth_manager.force_refresh()
-                        # Update database with new tokens
-                        await self.update_account_tokens(
-                            account.id,
-                            auth_manager._access_token,
-                            auth_manager._refresh_token,
-                            auth_manager._expires_at,
-                            auth_manager._profile_arn,
-                        )
+                    success, message = await self.refresh_account_token(account.id)
+                    if success:
                         refreshed += 1
                         logger.info(f"Refreshed token for account id={account.id}")
+                    else:
+                        logger.warning(f"Failed to refresh token for account id={account.id}: {message}")
                 except Exception as e:
                     logger.error(f"Failed to refresh token for account id={account.id}: {e}")
         

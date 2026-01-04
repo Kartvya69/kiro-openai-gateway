@@ -1020,7 +1020,7 @@ async def refresh_all_tokens(
     account_manager: AccountManager = request.app.state.account_manager
     
     try:
-        refreshed = await account_manager.refresh_all_tokens()
+        refreshed = await account_manager.refresh_all_tokens(force=True)
         add_log_entry(f"Refreshed {refreshed} account tokens", "INFO")
         return {"success": True, "refreshed_count": refreshed, "message": f"Refreshed {refreshed} tokens"}
     except Exception as e:
