@@ -63,8 +63,9 @@ from kiro_gateway.exceptions import validation_exception_handler
 from kiro_gateway.token_refresh import IdCTokenRefresher
 from kiro_gateway.oauth import KiroOAuthManager
 from kiro_gateway.webui import webui_router, start_session_cleanup, stop_session_cleanup
-from kiro_gateway.database import init_database, close_database
+from kiro_gateway.database import init_database, close_database, is_database_configured
 from kiro_gateway.accounts import AccountManager
+from kiro_gateway.local_storage import LocalAccountManager
 
 
 # --- Loguru Configuration ---
@@ -234,24 +235,41 @@ async def lifespan(app: FastAPI):
     Manages the application lifecycle.
     
     Creates and initializes:
-    - Database connection and AccountManager
+    - Database connection and AccountManager (or LocalAccountManager if no DATABASE_URL)
     - KiroAuthManager for token management (fallback)
     - ModelInfoCache for model caching
     - IdCTokenRefresher for automatic token refresh (if using IdC auth)
     """
     logger.info("Starting application... Creating state managers.")
     
-    # Initialize database and AccountManager
+    # Initialize AccountManager (PostgreSQL or Local storage)
     app.state.account_manager = None
-    try:
-        session_factory = await init_database()
-        app.state.account_manager = AccountManager(session_factory)
+    app.state.using_local_storage = False
+    
+    if is_database_configured():
+        # Use PostgreSQL database
+        try:
+            session_factory = await init_database()
+            app.state.account_manager = AccountManager(session_factory)
+            await app.state.account_manager.load_accounts()
+            app.state.account_manager.start_auto_refresh()
+            logger.info(f"AccountManager initialized with {app.state.account_manager.account_count} accounts (PostgreSQL)")
+        except Exception as e:
+            logger.warning(f"Could not initialize database: {e}")
+            logger.warning("Falling back to local storage")
+            app.state.account_manager = LocalAccountManager()
+            await app.state.account_manager.load_accounts()
+            app.state.account_manager.start_auto_refresh()
+            app.state.using_local_storage = True
+            logger.info(f"LocalAccountManager initialized with {app.state.account_manager.account_count} accounts (JSON file)")
+    else:
+        # Use local JSON file storage
+        logger.info("DATABASE_URL not configured, using local storage")
+        app.state.account_manager = LocalAccountManager()
         await app.state.account_manager.load_accounts()
         app.state.account_manager.start_auto_refresh()
-        logger.info(f"AccountManager initialized with {app.state.account_manager.account_count} accounts")
-    except Exception as e:
-        logger.warning(f"Could not initialize database: {e}")
-        logger.warning("Running without multi-account support")
+        app.state.using_local_storage = True
+        logger.info(f"LocalAccountManager initialized with {app.state.account_manager.account_count} accounts (JSON file)")
     
     # Create AuthManager
     # Priority: SQLite DB > JSON file > environment variables
@@ -314,8 +332,9 @@ async def lifespan(app: FastAPI):
     if app.state.account_manager:
         app.state.account_manager.stop_auto_refresh()
     
-    # Close database connection
-    await close_database()
+    # Close database connection (only if using PostgreSQL)
+    if not app.state.using_local_storage:
+        await close_database()
     
     logger.info("Shutting down application.")
 

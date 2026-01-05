@@ -127,12 +127,20 @@ _engine = None
 _session_factory: Optional[async_sessionmaker[AsyncSession]] = None
 
 
+def is_database_configured() -> bool:
+    """Check if DATABASE_URL is configured."""
+    return bool(DATABASE_URL)
+
+
 async def init_database() -> async_sessionmaker[AsyncSession]:
     """
     Initialize database connection and create tables.
     
     Returns:
         Async session factory for creating database sessions
+    
+    Raises:
+        ValueError: If DATABASE_URL is not set
     """
     global _engine, _session_factory
     
