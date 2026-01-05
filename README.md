@@ -33,32 +33,19 @@
 
 ## 🚀 Quick Start
 
-### Prerequisites
-
-- Python 3.10+
-- One of the following:
-  - [Kiro IDE](https://kiro.dev/) with logged in account, OR
-  - [Kiro CLI](https://kiro.dev/cli/) with AWS SSO (Builder ID)
-
-### Installation
-
 ```bash
-# Clone the repository
-git clone https://github.com/Jwadow/kiro-openai-gateway.git
+# Clone and install
+git clone https://github.com/Kartvya69/kiro-openai-gateway.git
 cd kiro-openai-gateway
-
-# Install dependencies
 pip install -r requirements.txt
 
-# Configure (see Configuration section)
-cp .env.example .env
-# Edit .env with your credentials
-
-# Start the server
+# Run
 python main.py
 ```
 
-The server will be available at `http://localhost:8000`
+The server starts at `http://localhost:8000`. Access the Web UI at `/ui` (default password: `admin123`).
+
+> **📖 See [docs/QUICKSTART.md](docs/QUICKSTART.md) for the full setup guide**, including database configuration for cloud platforms.
 
 ---
 
