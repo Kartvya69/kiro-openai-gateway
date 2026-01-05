@@ -93,12 +93,23 @@ REGION: str = _get_config_value(_config, "kiro_region", "us-east-1")
 _raw_creds_file = _get_config_value(_config, "kiro_creds_file", "")
 KIRO_CREDS_FILE: str = str(Path(_raw_creds_file)) if _raw_creds_file else ""
 
+# Path to kiro-cli SQLite database (optional, for AWS SSO OIDC authentication)
+# Default location: ~/.local/share/kiro-cli/data.sqlite3 (Linux/macOS)
+# or ~/.local/share/amazon-q/data.sqlite3 (amazon-q-developer-cli)
+_raw_cli_db_file = _get_raw_env_value("KIRO_CLI_DB_FILE") or os.getenv("KIRO_CLI_DB_FILE", "")
+KIRO_CLI_DB_FILE: str = str(Path(_raw_cli_db_file)) if _raw_cli_db_file else ""
+
 # ==================================================================================================
 # Kiro API URL Templates
 # ==================================================================================================
 
+# URL for token refresh (Kiro Desktop Auth)
 KIRO_REFRESH_URL_TEMPLATE: str = "https://prod.{region}.auth.desktop.kiro.dev/refreshToken"
 
+# URL for token refresh (AWS SSO OIDC - used by kiro-cli)
+AWS_SSO_OIDC_URL_TEMPLATE: str = "https://oidc.{region}.amazonaws.com/token"
+
+# Host for main API (generateAssistantResponse)
 KIRO_API_HOST_TEMPLATE: str = "https://codewhisperer.{region}.amazonaws.com"
 
 KIRO_Q_HOST_TEMPLATE: str = "https://q.{region}.amazonaws.com"
@@ -218,17 +229,71 @@ def _warn_timeout_configuration():
         print(warning_text, file=sys.stderr)
 
 # ==================================================================================================
+# Fake Reasoning Settings (Extended Thinking via Tag Injection)
+# ==================================================================================================
+
+# Enable fake reasoning - injects special tags into requests to enable model reasoning.
+# When enabled, the model will include its reasoning process in the response wrapped in tags.
+# The response is then parsed and converted to OpenAI-compatible reasoning_content format.
+#
+# WHY "FAKE"? This is NOT native extended thinking API support. Instead, we inject
+# <thinking_mode>enabled</thinking_mode> tags into the prompt, and the model responds
+# with <thinking>...</thinking> blocks that we parse and convert to reasoning_content.
+# It works great, but it's a hack - hence "fake" reasoning.
+#
+# Default: true (enabled) - provides premium experience out of the box
+_FAKE_REASONING_RAW: str = os.getenv("FAKE_REASONING", "").lower()
+# Default is True - if env var is not set or empty, enable fake reasoning
+FAKE_REASONING_ENABLED: bool = _FAKE_REASONING_RAW not in ("false", "0", "no", "disabled", "off")
+
+# Maximum thinking length in tokens.
+# This value is injected into the request as <max_thinking_length>{value}</max_thinking_length>
+# Higher values allow for more detailed reasoning but increase response time and token usage.
+# Default: 4000 tokens
+FAKE_REASONING_MAX_TOKENS: int = int(os.getenv("FAKE_REASONING_MAX_TOKENS", "4000"))
+
+# How to handle the thinking block in responses:
+# - "as_reasoning_content": Extract to reasoning_content field (OpenAI-compatible, recommended)
+# - "remove": Remove thinking block completely, return only final answer
+# - "pass": Pass through as-is with original tags in content
+# - "strip_tags": Remove tags but keep thinking content in regular content
+#
+# Default: "as_reasoning_content"
+_FAKE_REASONING_HANDLING_RAW: str = os.getenv("FAKE_REASONING_HANDLING", "as_reasoning_content").lower()
+if _FAKE_REASONING_HANDLING_RAW in ("as_reasoning_content", "remove", "pass", "strip_tags"):
+    FAKE_REASONING_HANDLING: str = _FAKE_REASONING_HANDLING_RAW
+else:
+    FAKE_REASONING_HANDLING: str = "as_reasoning_content"
+
+# List of opening tags to detect thinking blocks.
+# The parser will look for any of these tags at the start of the response.
+# Order matters - first match wins.
+FAKE_REASONING_OPEN_TAGS: List[str] = ["<thinking>", "<think>", "<reasoning>", "<thought>"]
+
+# Maximum size of initial buffer for tag detection (characters).
+# If no thinking tag is found within this limit, content is treated as regular response.
+# Lower values = faster first token, but may miss tags with leading whitespace.
+# Default: 30 characters (enough for longest tag + some whitespace)
+FAKE_REASONING_INITIAL_BUFFER_SIZE: int = int(os.getenv("FAKE_REASONING_INITIAL_BUFFER_SIZE", "20"))
+
+
+# ==================================================================================================
 # Application Version
 # ==================================================================================================
 
-APP_VERSION: str = "1.0.7"
+APP_VERSION: str = "1.0.8"
 APP_TITLE: str = "Kiro API Gateway"
 APP_DESCRIPTION: str = "OpenAI-compatible interface for Kiro API (AWS CodeWhisperer). Made by @jwadow"
 
 
 def get_kiro_refresh_url(region: str) -> str:
-    """Return token refresh URL for the specified region."""
+    """Return Kiro Desktop Auth token refresh URL for the specified region."""
     return KIRO_REFRESH_URL_TEMPLATE.format(region=region)
+
+
+def get_aws_sso_oidc_url(region: str) -> str:
+    """Return AWS SSO OIDC token URL for the specified region."""
+    return AWS_SSO_OIDC_URL_TEMPLATE.format(region=region)
 
 
 def get_kiro_api_host(region: str) -> str:

@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
 """
-Общие фикстуры и утилиты для тестирования Kiro OpenAI Gateway.
+Common fixtures and utilities for testing Kiro OpenAI Gateway.
 
-Обеспечивает изоляцию тестов от внешних сервисов и глобального состояния.
-Все тесты ДОЛЖНЫ быть полностью изолированы от сети.
+Provides test isolation from external services and global state.
+All tests MUST be completely isolated from the network.
 """
 
 import asyncio
@@ -20,32 +20,32 @@ from fastapi.testclient import TestClient
 
 
 # =============================================================================
-# Event Loop фикстуры
+# Event Loop Fixtures
 # =============================================================================
 
 @pytest.fixture(scope="session")
 def event_loop():
     """
-    Создает event loop для всей сессии тестов.
-    Необходимо для корректной работы async фикстур.
+    Creates an event loop for the entire test session.
+    Required for proper async fixture operation.
     """
-    print("Создание event loop для сессии тестов...")
+    print("Creating event loop for test session...")
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
-    print("Закрытие event loop...")
+    print("Closing event loop...")
     loop.close()
 
 
 # =============================================================================
-# Фикстуры окружения
+# Environment Fixtures
 # =============================================================================
 
 @pytest.fixture
 def mock_env_vars(monkeypatch):
     """
-    Мокирует переменные окружения для изоляции от реальных credentials.
+    Mocks environment variables for isolation from real credentials.
     """
-    print("Настройка мокированных переменных окружения...")
+    print("Setting up mocked environment variables...")
     monkeypatch.setenv("REFRESH_TOKEN", "test_refresh_token_abcdef")
     monkeypatch.setenv("PROXY_API_KEY", "test_proxy_key_12345")
     monkeypatch.setenv("PROFILE_ARN", "arn:aws:codewhisperer:us-east-1:123456789:profile/test")
@@ -59,19 +59,19 @@ def mock_env_vars(monkeypatch):
 
 
 # =============================================================================
-# Фикстуры токенов и аутентификации
+# Token and Authentication Fixtures
 # =============================================================================
 
 @pytest.fixture
 def valid_kiro_token():
-    """Возвращает валидный мок Kiro access token."""
+    """Returns a valid mock Kiro access token."""
     return "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.test_kiro_access_token"
 
 
 @pytest.fixture
 def mock_kiro_token_response(valid_kiro_token):
     """
-    Фабрика для создания мок-ответа Kiro token refresh endpoint.
+    Factory for creating mock Kiro token refresh endpoint responses.
     """
     def _create_response(expires_in: int = 3600, token: str = None):
         return {
@@ -85,21 +85,21 @@ def mock_kiro_token_response(valid_kiro_token):
 
 @pytest.fixture
 def valid_proxy_api_key():
-    """Возвращает валидный API ключ прокси (из config)."""
+    """Returns a valid proxy API key (from config)."""
     from kiro_gateway.config import PROXY_API_KEY
     return PROXY_API_KEY
 
 
 @pytest.fixture
 def invalid_proxy_api_key():
-    """Возвращает невалидный API ключ для негативных тестов."""
+    """Returns an invalid API key for negative tests."""
     return "invalid_wrong_secret_key"
 
 
 @pytest.fixture
 def auth_headers(valid_proxy_api_key):
     """
-    Фабрика для создания валидных и невалидных Authorization headers.
+    Factory for creating valid and invalid Authorization headers.
     """
     def _create_headers(api_key: str = None, invalid: bool = False):
         if invalid:
@@ -111,13 +111,13 @@ def auth_headers(valid_proxy_api_key):
 
 
 # =============================================================================
-# Фикстуры моделей Kiro
+# Kiro Models Fixtures
 # =============================================================================
 
 @pytest.fixture
 def mock_kiro_models_response():
     """
-    Мок успешного ответа от Kiro API для ListAvailableModels.
+    Mock successful response from Kiro API for ListAvailableModels.
     """
     return {
         "models": [
@@ -150,19 +150,19 @@ def mock_kiro_models_response():
 
 
 # =============================================================================
-# Фикстуры streaming ответов Kiro
+# Kiro Streaming Response Fixtures
 # =============================================================================
 
 @pytest.fixture
 def mock_kiro_streaming_chunks():
     """
-    Возвращает список мок SSE chunks от Kiro API для streaming response.
-    Покрывает: обычный текст, tool calls, usage.
+    Returns a list of mock SSE chunks from Kiro API for streaming response.
+    Covers: regular text, tool calls, usage.
     """
     return [
-        # Chunk 1: Начало текста
+        # Chunk 1: Text start
         b'{"content":"Hello"}',
-        # Chunk 2: Продолжение текста
+        # Chunk 2: Text continuation
         b'{"content":" World!"}',
         # Chunk 3: Tool call start
         b'{"name":"get_weather","toolUseId":"call_abc123"}',
@@ -179,7 +179,7 @@ def mock_kiro_streaming_chunks():
 @pytest.fixture
 def mock_kiro_simple_text_chunks():
     """
-    Мок простого текстового ответа от Kiro (без tool calls).
+    Mock simple text response from Kiro (without tool calls).
     """
     return [
         b'{"content":"This is a complete response."}',
@@ -191,7 +191,7 @@ def mock_kiro_simple_text_chunks():
 @pytest.fixture
 def mock_kiro_stream_with_usage():
     """
-    Мок SSE ответа Kiro с информацией о usage.
+    Mock Kiro SSE response with usage information.
     """
     return [
         b'{"content":"Final text."}',
@@ -201,13 +201,13 @@ def mock_kiro_stream_with_usage():
 
 
 # =============================================================================
-# Фикстуры OpenAI запросов
+# OpenAI Request Fixtures
 # =============================================================================
 
 @pytest.fixture
 def sample_openai_chat_request():
     """
-    Фабрика для создания валидных OpenAI chat completion requests.
+    Factory for creating valid OpenAI chat completion requests.
     """
     def _create_request(
         model: str = "claude-sonnet-4-5",
@@ -243,7 +243,7 @@ def sample_openai_chat_request():
 @pytest.fixture
 def sample_tool_definition():
     """
-    Пример определения tool для тестирования tool calling.
+    Sample tool definition for testing tool calling.
     """
     return {
         "type": "function",
@@ -262,18 +262,18 @@ def sample_tool_definition():
 
 
 # =============================================================================
-# Фикстуры HTTP клиента
+# HTTP Client Fixtures
 # =============================================================================
 
 @pytest.fixture
 async def mock_httpx_client():
     """
-    Создает мокированный httpx.AsyncClient для изоляции от сетевых запросов.
+    Creates a mocked httpx.AsyncClient for isolation from network requests.
     """
-    print("Создание мокированного httpx.AsyncClient...")
+    print("Creating mocked httpx.AsyncClient...")
     mock_client = AsyncMock(spec=httpx.AsyncClient)
     
-    # Мокируем методы
+    # Mock methods
     mock_client.post = AsyncMock()
     mock_client.get = AsyncMock()
     mock_client.aclose = AsyncMock()
@@ -287,7 +287,7 @@ async def mock_httpx_client():
 @pytest.fixture
 def mock_httpx_response():
     """
-    Фабрика для создания мокированных httpx.Response объектов.
+    Factory for creating mocked httpx.Response objects.
     """
     def _create_response(
         status_code: int = 200,
@@ -295,7 +295,7 @@ def mock_httpx_response():
         text: str = None,
         stream_chunks: list = None
     ):
-        print(f"Создание мок httpx.Response (status={status_code})...")
+        print(f"Creating mock httpx.Response (status={status_code})...")
         mock_response = AsyncMock(spec=httpx.Response)
         mock_response.status_code = status_code
         
@@ -307,7 +307,7 @@ def mock_httpx_response():
             mock_response.content = text.encode()
         
         if stream_chunks is not None:
-            # Для streaming responses
+            # For streaming responses
             async def mock_aiter_bytes():
                 for chunk in stream_chunks:
                     yield chunk
@@ -324,37 +324,37 @@ def mock_httpx_response():
 
 
 # =============================================================================
-# Глобальная блокировка сети
+# Global Network Blocking
 # =============================================================================
 
 @pytest.fixture(scope="session", autouse=True)
 def block_all_network_calls():
     """
-    КРИТИЧЕСКАЯ ФИКСТУРА: Глобально блокирует ВСЕ сетевые вызовы.
-    Гарантирует, что НИ ОДИН тест не сможет сделать реальный сетевой запрос.
+    CRITICAL FIXTURE: Globally blocks ALL network calls.
+    Ensures that NO test can make a real network request.
     """
     
-    # Создаем мок, который будет использоваться для всех инстансов AsyncClient
+    # Create a mock that will be used for all AsyncClient instances
     mock_async_client = AsyncMock(spec=httpx.AsyncClient)
 
     async def network_call_error(*args, **kwargs):
         raise RuntimeError(
-            "🚨 КРИТИЧЕСКАЯ ОШИБКА: Обнаружена попытка реального сетевого запроса! "
-            "Тест не предоставил мок для httpx.AsyncClient. "
-            "Все HTTP вызовы должны быть явно замокированы."
+            "🚨 CRITICAL ERROR: Real network request attempt detected! "
+            "Test did not provide a mock for httpx.AsyncClient. "
+            "All HTTP calls must be explicitly mocked."
         )
 
     mock_async_client.post.side_effect = network_call_error
     mock_async_client.get.side_effect = network_call_error
     mock_async_client.send.side_effect = network_call_error
     
-    # Мокируем контекстный менеджер
+    # Mock context manager
     mock_async_client.__aenter__ = AsyncMock(return_value=mock_async_client)
     mock_async_client.__aexit__ = AsyncMock()
     mock_async_client.aclose = AsyncMock()
     mock_async_client.is_closed = False
 
-    # Патчим AsyncClient в модулях где он используется
+    # Patch AsyncClient in modules where it's used
     patchers = [
         patch('kiro_gateway.auth.httpx.AsyncClient', return_value=mock_async_client),
         patch('kiro_gateway.http_client.httpx.AsyncClient', return_value=mock_async_client),
@@ -362,33 +362,33 @@ def block_all_network_calls():
         patch('kiro_gateway.streaming.httpx.AsyncClient', return_value=mock_async_client),
     ]
     
-    # Запускаем патчеры
+    # Start patchers
     for patcher in patchers:
         patcher.start()
     
-    print("🛡️ ГЛОБАЛЬНАЯ БЛОКИРОВКА СЕТИ АКТИВИРОВАНА")
+    print("🛡️ GLOBAL NETWORK BLOCKING ACTIVATED")
     
     yield
 
-    # Останавливаем патчеры
+    # Stop patchers
     for patcher in patchers:
         patcher.stop()
     
-    print("🛡️ ГЛОБАЛЬНАЯ БЛОКИРОВКА СЕТИ ДЕАКТИВИРОВАНА")
+    print("🛡️ GLOBAL NETWORK BLOCKING DEACTIVATED")
 
 
 # =============================================================================
-# Фикстуры приложения
+# Application Fixtures
 # =============================================================================
 
 @pytest.fixture
 def clean_app():
     """
-    Возвращает "чистый" экземпляр приложения для каждого теста.
+    Returns a "clean" application instance for each test.
     """
-    print("Импорт приложения для теста...")
+    print("Importing application for test...")
     from main import app
-    # Сбрасываем все переопределения зависимостей перед тестом
+    # Reset all dependency overrides before test
     app.dependency_overrides = {}
     return app
 
@@ -396,38 +396,38 @@ def clean_app():
 @pytest.fixture
 def test_client(clean_app):
     """
-    Создает FastAPI TestClient для синхронных тестов endpoints,
-    корректно обрабатывая lifespan события.
+    Creates a FastAPI TestClient for synchronous endpoint tests,
+    properly handling lifespan events.
     """
-    print("Создание TestClient с поддержкой lifespan...")
+    print("Creating TestClient with lifespan support...")
     with TestClient(clean_app) as client:
         yield client
-    print("Закрытие TestClient...")
+    print("Closing TestClient...")
 
 
 @pytest.fixture
 async def async_test_client(clean_app):
     """
-    Создает асинхронный test client для async endpoints.
+    Creates an asynchronous test client for async endpoints.
     """
-    print("Создание async test client...")
+    print("Creating async test client...")
     from httpx import AsyncClient, ASGITransport
     
     transport = ASGITransport(app=clean_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
     
-    print("Закрытие async test client...")
+    print("Closing async test client...")
 
 
 # =============================================================================
-# Фикстуры для KiroAuthManager
+# KiroAuthManager Fixtures
 # =============================================================================
 
 @pytest.fixture
 def mock_auth_manager():
     """
-    Создает мокированный KiroAuthManager для тестов.
+    Creates a mocked KiroAuthManager for tests.
     """
     from kiro_gateway.auth import KiroAuthManager
     
@@ -437,10 +437,10 @@ def mock_auth_manager():
         region="us-east-1"
     )
     
-    # Устанавливаем валидный токен
+    # Set valid token
     manager._access_token = "test_access_token"
     manager._expires_at = datetime.now(timezone.utc).replace(
-        year=2099  # Далеко в будущем
+        year=2099  # Far in the future
     )
     
     return manager
@@ -449,7 +449,7 @@ def mock_auth_manager():
 @pytest.fixture
 def expired_auth_manager():
     """
-    Создает KiroAuthManager с истекшим токеном.
+    Creates a KiroAuthManager with an expired token.
     """
     from kiro_gateway.auth import KiroAuthManager
     
@@ -459,23 +459,23 @@ def expired_auth_manager():
         region="us-east-1"
     )
     
-    # Устанавливаем истекший токен
+    # Set expired token
     manager._access_token = "expired_token"
     manager._expires_at = datetime.now(timezone.utc).replace(
-        year=2020  # В прошлом
+        year=2020  # In the past
     )
     
     return manager
 
 
 # =============================================================================
-# Фикстуры для ModelInfoCache
+# ModelInfoCache Fixtures
 # =============================================================================
 
 @pytest.fixture
 def sample_models_data():
     """
-    Возвращает список моделей для тестирования ModelInfoCache.
+    Returns a list of models for testing ModelInfoCache.
     """
     return [
         {
@@ -508,7 +508,7 @@ def sample_models_data():
 @pytest.fixture
 def empty_model_cache():
     """
-    Создает пустой ModelInfoCache.
+    Creates an empty ModelInfoCache.
     """
     from kiro_gateway.cache import ModelInfoCache
     return ModelInfoCache()
@@ -517,7 +517,7 @@ def empty_model_cache():
 @pytest.fixture
 async def populated_model_cache(mock_kiro_models_response):
     """
-    Создает ModelInfoCache с предзаполненными данными.
+    Creates a ModelInfoCache with pre-populated data.
     """
     from kiro_gateway.cache import ModelInfoCache
     
@@ -527,16 +527,16 @@ async def populated_model_cache(mock_kiro_models_response):
 
 
 # =============================================================================
-# Фикстуры времени
+# Time Fixtures
 # =============================================================================
 
 @pytest.fixture
 def mock_time():
     """
-    Мокирует time.time() для предсказуемого поведения в тестах.
+    Mocks time.time() for predictable behavior in tests.
     """
     with patch('time.time') as mock:
-        # Фиксированная точка времени: 2024-01-01 12:00:00
+        # Fixed point in time: 2024-01-01 12:00:00
         mock.return_value = 1704110400.0
         yield mock
 
@@ -544,7 +544,7 @@ def mock_time():
 @pytest.fixture
 def mock_datetime():
     """
-    Мокирует datetime.now() для предсказуемого поведения.
+    Mocks datetime.now() for predictable behavior.
     """
     fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     
@@ -556,13 +556,13 @@ def mock_datetime():
 
 
 # =============================================================================
-# Фикстуры для временных файлов
+# Temporary File Fixtures
 # =============================================================================
 
 @pytest.fixture
 def temp_creds_file(tmp_path):
     """
-    Создает временный файл credentials для тестов.
+    Creates a temporary credentials file for tests (Kiro Desktop format).
     """
     creds_file = tmp_path / "kiro-auth-token.json"
     creds_data = {
@@ -577,9 +577,165 @@ def temp_creds_file(tmp_path):
 
 
 @pytest.fixture
+def temp_aws_sso_creds_file(tmp_path):
+    """
+    Creates a temporary credentials file for tests (AWS SSO OIDC format).
+    Contains clientId and clientSecret, indicating AWS SSO OIDC authentication.
+    """
+    creds_file = tmp_path / "aws-sso-cache.json"
+    creds_data = {
+        "accessToken": "aws_sso_access_token",
+        "refreshToken": "aws_sso_refresh_token",
+        "expiresAt": "2099-01-01T00:00:00.000Z",
+        "region": "us-east-1",
+        "clientId": "test_client_id_12345",
+        "clientSecret": "test_client_secret_67890"
+    }
+    creds_file.write_text(json.dumps(creds_data))
+    return str(creds_file)
+
+
+@pytest.fixture
+def temp_sqlite_db(tmp_path):
+    """
+    Creates a temporary SQLite database for tests (kiro-cli format).
+    
+    Contains auth_kv table with keys:
+    - 'codewhisperer:odic:token': JSON with access_token, refresh_token, expires_at, region
+    - 'codewhisperer:odic:device-registration': JSON with client_id, client_secret
+    """
+    import sqlite3
+    
+    db_file = tmp_path / "data.sqlite3"
+    conn = sqlite3.connect(str(db_file))
+    cursor = conn.cursor()
+    
+    # Create auth_kv table
+    cursor.execute("""
+        CREATE TABLE auth_kv (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    
+    # Insert token data
+    token_data = {
+        "access_token": "sqlite_access_token",
+        "refresh_token": "sqlite_refresh_token",
+        "expires_at": "2099-01-01T00:00:00Z",
+        "region": "eu-west-1"
+    }
+    cursor.execute(
+        "INSERT INTO auth_kv (key, value) VALUES (?, ?)",
+        ("codewhisperer:odic:token", json.dumps(token_data))
+    )
+    
+    # Insert device registration data
+    registration_data = {
+        "client_id": "sqlite_client_id",
+        "client_secret": "sqlite_client_secret",
+        "region": "eu-west-1"
+    }
+    cursor.execute(
+        "INSERT INTO auth_kv (key, value) VALUES (?, ?)",
+        ("codewhisperer:odic:device-registration", json.dumps(registration_data))
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    return str(db_file)
+
+
+@pytest.fixture
+def temp_sqlite_db_token_only(tmp_path):
+    """
+    Creates a SQLite database with token only (without device-registration).
+    Used for testing partial loading.
+    """
+    import sqlite3
+    
+    db_file = tmp_path / "data_token_only.sqlite3"
+    conn = sqlite3.connect(str(db_file))
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE auth_kv (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    
+    token_data = {
+        "access_token": "partial_access_token",
+        "refresh_token": "partial_refresh_token",
+        "region": "ap-southeast-1"
+    }
+    cursor.execute(
+        "INSERT INTO auth_kv (key, value) VALUES (?, ?)",
+        ("codewhisperer:odic:token", json.dumps(token_data))
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    return str(db_file)
+
+
+@pytest.fixture
+def temp_sqlite_db_invalid_json(tmp_path):
+    """
+    Creates a SQLite database with invalid JSON in value.
+    Used for testing error handling.
+    """
+    import sqlite3
+    
+    db_file = tmp_path / "data_invalid.sqlite3"
+    conn = sqlite3.connect(str(db_file))
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE auth_kv (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    
+    # Insert invalid JSON
+    cursor.execute(
+        "INSERT INTO auth_kv (key, value) VALUES (?, ?)",
+        ("codewhisperer:odic:token", "not a valid json {{{")
+    )
+    
+    conn.commit()
+    conn.close()
+    
+    return str(db_file)
+
+
+@pytest.fixture
+def mock_aws_sso_oidc_token_response():
+    """
+    Factory for creating mock AWS SSO OIDC token endpoint responses.
+    """
+    def _create_response(
+        access_token: str = "new_aws_sso_access_token",
+        refresh_token: str = "new_aws_sso_refresh_token",
+        expires_in: int = 3600
+    ):
+        return {
+            "accessToken": access_token,
+            "refreshToken": refresh_token,
+            "expiresIn": expires_in,
+            "tokenType": "Bearer"
+        }
+    return _create_response
+
+
+@pytest.fixture
 def temp_debug_dir(tmp_path):
     """
-    Создает временную директорию для debug файлов.
+    Creates a temporary directory for debug files.
     """
     debug_dir = tmp_path / "debug_logs"
     debug_dir.mkdir()
@@ -587,48 +743,48 @@ def temp_debug_dir(tmp_path):
 
 
 # =============================================================================
-# Фикстуры для парсера
+# Parser Fixtures
 # =============================================================================
 
 @pytest.fixture
 def aws_event_parser():
     """
-    Создает экземпляр AwsEventStreamParser для тестов.
+    Creates an AwsEventStreamParser instance for tests.
     """
     from kiro_gateway.parsers import AwsEventStreamParser
     return AwsEventStreamParser()
 
 
 # =============================================================================
-# Утилиты для тестов
+# Test Utilities
 # =============================================================================
 
 def create_kiro_content_chunk(content: str) -> bytes:
-    """Утилита для создания Kiro SSE chunk с контентом."""
+    """Utility for creating a Kiro SSE chunk with content."""
     return f'{{"content":"{content}"}}'.encode()
 
 
 def create_kiro_tool_start_chunk(name: str, tool_id: str) -> bytes:
-    """Утилита для создания Kiro SSE chunk с началом tool call."""
+    """Utility for creating a Kiro SSE chunk with tool call start."""
     return f'{{"name":"{name}","toolUseId":"{tool_id}"}}'.encode()
 
 
 def create_kiro_tool_input_chunk(input_json: str) -> bytes:
-    """Утилита для создания Kiro SSE chunk с input для tool call."""
+    """Utility for creating a Kiro SSE chunk with tool call input."""
     escaped = input_json.replace('"', '\\"')
     return f'{{"input":"{escaped}"}}'.encode()
 
 
 def create_kiro_tool_stop_chunk() -> bytes:
-    """Утилита для создания Kiro SSE chunk с завершением tool call."""
+    """Utility for creating a Kiro SSE chunk with tool call stop."""
     return b'{"stop":true}'
 
 
 def create_kiro_usage_chunk(usage: float) -> bytes:
-    """Утилита для создания Kiro SSE chunk с usage."""
+    """Utility for creating a Kiro SSE chunk with usage."""
     return f'{{"usage":{usage}}}'.encode()
 
 
 def create_kiro_context_usage_chunk(percentage: float) -> bytes:
-    """Утилита для создания Kiro SSE chunk с context usage."""
+    """Utility for creating a Kiro SSE chunk with context usage."""
     return f'{{"contextUsagePercentage":{percentage}}}'.encode()

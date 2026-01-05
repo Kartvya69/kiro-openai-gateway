@@ -228,3 +228,99 @@ class TestConfigConstants:
         
         q_host = get_kiro_q_host(region)
         assert region in q_host
+
+
+class TestAwsSsoOidcUrlConfig:
+    """Tests for AWS SSO OIDC URL configuration."""
+    
+    def test_aws_sso_oidc_url_template_exists(self):
+        """
+        What it does: Verifies that AWS_SSO_OIDC_URL_TEMPLATE constant exists.
+        Purpose: Ensure the template is defined in config.
+        """
+        print("Setup: Importing config module...")
+        import importlib
+        import kiro_gateway.config as config_module
+        importlib.reload(config_module)
+        
+        print("Verification: AWS_SSO_OIDC_URL_TEMPLATE exists...")
+        assert hasattr(config_module, 'AWS_SSO_OIDC_URL_TEMPLATE')
+        
+        print(f"AWS_SSO_OIDC_URL_TEMPLATE: {config_module.AWS_SSO_OIDC_URL_TEMPLATE}")
+        assert "oidc" in config_module.AWS_SSO_OIDC_URL_TEMPLATE
+        assert "amazonaws.com" in config_module.AWS_SSO_OIDC_URL_TEMPLATE
+        assert "{region}" in config_module.AWS_SSO_OIDC_URL_TEMPLATE
+    
+    def test_get_aws_sso_oidc_url_returns_correct_url(self):
+        """
+        What it does: Verifies that get_aws_sso_oidc_url returns correct URL.
+        Purpose: Ensure the function formats URL correctly.
+        """
+        print("Setup: Importing get_aws_sso_oidc_url...")
+        from kiro_gateway.config import get_aws_sso_oidc_url
+        
+        print("Action: Calling get_aws_sso_oidc_url('us-east-1')...")
+        url = get_aws_sso_oidc_url("us-east-1")
+        
+        print(f"Verification: URL is correct...")
+        expected = "https://oidc.us-east-1.amazonaws.com/token"
+        print(f"Comparing: Expected '{expected}', Got '{url}'")
+        assert url == expected
+    
+    def test_get_aws_sso_oidc_url_with_different_regions(self):
+        """
+        What it does: Verifies URL generation for different regions.
+        Purpose: Ensure the function works with various AWS regions.
+        """
+        print("Setup: Importing get_aws_sso_oidc_url...")
+        from kiro_gateway.config import get_aws_sso_oidc_url
+        
+        test_cases = [
+            ("us-east-1", "https://oidc.us-east-1.amazonaws.com/token"),
+            ("eu-west-1", "https://oidc.eu-west-1.amazonaws.com/token"),
+            ("ap-southeast-1", "https://oidc.ap-southeast-1.amazonaws.com/token"),
+            ("us-west-2", "https://oidc.us-west-2.amazonaws.com/token"),
+        ]
+        
+        for region, expected in test_cases:
+            print(f"Action: Calling get_aws_sso_oidc_url('{region}')...")
+            url = get_aws_sso_oidc_url(region)
+            print(f"Comparing: Expected '{expected}', Got '{url}'")
+            assert url == expected
+
+
+class TestKiroCliDbFileConfig:
+    """Tests for KIRO_CLI_DB_FILE configuration."""
+    
+    def test_kiro_cli_db_file_config_exists(self):
+        """
+        What it does: Verifies that KIRO_CLI_DB_FILE constant exists.
+        Purpose: Ensure the config parameter is defined.
+        """
+        print("Setup: Importing config module...")
+        import importlib
+        import kiro_gateway.config as config_module
+        importlib.reload(config_module)
+        
+        print("Verification: KIRO_CLI_DB_FILE exists...")
+        assert hasattr(config_module, 'KIRO_CLI_DB_FILE')
+        
+        print(f"KIRO_CLI_DB_FILE: '{config_module.KIRO_CLI_DB_FILE}'")
+        # Default should be empty string
+        assert isinstance(config_module.KIRO_CLI_DB_FILE, str)
+    
+    def test_kiro_cli_db_file_from_environment(self):
+        """
+        What it does: Verifies loading KIRO_CLI_DB_FILE from environment variable.
+        Purpose: Ensure the value from environment is used.
+        """
+        print("Setup: Setting KIRO_CLI_DB_FILE=~/.local/share/kiro-cli/data.sqlite3...")
+        
+        with patch.dict(os.environ, {"KIRO_CLI_DB_FILE": "~/.local/share/kiro-cli/data.sqlite3"}):
+            import importlib
+            import kiro_gateway.config as config_module
+            importlib.reload(config_module)
+            
+            print(f"KIRO_CLI_DB_FILE: {config_module.KIRO_CLI_DB_FILE}")
+            # Path should be normalized
+            assert "kiro-cli" in config_module.KIRO_CLI_DB_FILE or "kiro_cli" in config_module.KIRO_CLI_DB_FILE.lower()

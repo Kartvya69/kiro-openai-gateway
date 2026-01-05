@@ -37,8 +37,14 @@ from loguru import logger
 
 from kiro_gateway.parsers import AwsEventStreamParser, parse_bracket_tool_calls, deduplicate_tool_calls
 from kiro_gateway.utils import generate_completion_id
-from kiro_gateway.config import FIRST_TOKEN_TIMEOUT, FIRST_TOKEN_MAX_RETRIES
+from kiro_gateway.config import (
+    FIRST_TOKEN_TIMEOUT,
+    FIRST_TOKEN_MAX_RETRIES,
+    FAKE_REASONING_ENABLED,
+    FAKE_REASONING_HANDLING,
+)
 from kiro_gateway.tokenizer import count_tokens, count_message_tokens, count_tools_tokens
+from kiro_gateway.thinking_parser import ThinkingParser
 
 if TYPE_CHECKING:
     from kiro_gateway.auth import KiroAuthManager
@@ -107,8 +113,15 @@ async def stream_kiro_to_openai_internal(
     metering_data = None
     context_usage_percentage = None
     full_content = ""
+    full_thinking_content = ""  # Accumulated thinking content for non-streaming
     
     streaming_error_occurred = False
+    
+    # Initialize thinking parser if fake reasoning is enabled
+    thinking_parser: Optional[ThinkingParser] = None
+    if FAKE_REASONING_ENABLED:
+        thinking_parser = ThinkingParser(handling_mode=FAKE_REASONING_HANDLING)
+        logger.debug(f"Thinking parser initialized with mode: {FAKE_REASONING_HANDLING}")
     
     try:
         # Create iterator for reading bytes
@@ -144,25 +157,86 @@ async def stream_kiro_to_openai_internal(
                 content = event["data"]
                 full_content += content
                 
-                delta = {"content": content}
-                if first_chunk:
-                    delta["role"] = "assistant"
-                    first_chunk = False
-                
-                openai_chunk = {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "created": created_time,
-                    "model": model,
-                    "choices": [{"index": 0, "delta": delta, "finish_reason": None}]
-                }
-                
-                chunk_text = f"data: {json.dumps(openai_chunk, ensure_ascii=False)}\n\n"
-                
-                if debug_logger:
-                    debug_logger.log_modified_chunk(chunk_text.encode('utf-8'))
-                
-                yield chunk_text
+                # Process through thinking parser if enabled
+                if thinking_parser:
+                    parse_result = thinking_parser.feed(content)
+                    
+                    # Yield thinking content if any
+                    if parse_result.thinking_content:
+                        full_thinking_content += parse_result.thinking_content
+                        processed_thinking = thinking_parser.process_for_output(
+                            parse_result.thinking_content,
+                            parse_result.is_first_thinking_chunk,
+                            parse_result.is_last_thinking_chunk,
+                        )
+                        if processed_thinking:
+                            # Send as reasoning_content or content based on mode
+                            if FAKE_REASONING_HANDLING == "as_reasoning_content":
+                                delta = {"reasoning_content": processed_thinking}
+                            else:
+                                delta = {"content": processed_thinking}
+                            
+                            if first_chunk:
+                                delta["role"] = "assistant"
+                                first_chunk = False
+                            
+                            openai_chunk = {
+                                "id": completion_id,
+                                "object": "chat.completion.chunk",
+                                "created": created_time,
+                                "model": model,
+                                "choices": [{"index": 0, "delta": delta, "finish_reason": None}]
+                            }
+                            
+                            chunk_text = f"data: {json.dumps(openai_chunk, ensure_ascii=False)}\n\n"
+                            
+                            if debug_logger:
+                                debug_logger.log_modified_chunk(chunk_text.encode('utf-8'))
+                            
+                            yield chunk_text
+                    
+                    # Yield regular content if any
+                    if parse_result.regular_content:
+                        delta = {"content": parse_result.regular_content}
+                        if first_chunk:
+                            delta["role"] = "assistant"
+                            first_chunk = False
+                        
+                        openai_chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": model,
+                            "choices": [{"index": 0, "delta": delta, "finish_reason": None}]
+                        }
+                        
+                        chunk_text = f"data: {json.dumps(openai_chunk, ensure_ascii=False)}\n\n"
+                        
+                        if debug_logger:
+                            debug_logger.log_modified_chunk(chunk_text.encode('utf-8'))
+                        
+                        yield chunk_text
+                else:
+                    # No thinking parser - pass through as-is
+                    delta = {"content": content}
+                    if first_chunk:
+                        delta["role"] = "assistant"
+                        first_chunk = False
+                    
+                    openai_chunk = {
+                        "id": completion_id,
+                        "object": "chat.completion.chunk",
+                        "created": created_time,
+                        "model": model,
+                        "choices": [{"index": 0, "delta": delta, "finish_reason": None}]
+                    }
+                    
+                    chunk_text = f"data: {json.dumps(openai_chunk, ensure_ascii=False)}\n\n"
+                    
+                    if debug_logger:
+                        debug_logger.log_modified_chunk(chunk_text.encode('utf-8'))
+                    
+                    yield chunk_text
             
             elif event["type"] == "usage":
                 metering_data = event["data"]
@@ -183,13 +257,114 @@ async def stream_kiro_to_openai_internal(
                     content = event["data"]
                     full_content += content
                     
-                    # Form delta
-                    delta = {"content": content}
+                    # Process through thinking parser if enabled
+                    if thinking_parser:
+                        parse_result = thinking_parser.feed(content)
+                        
+                        # Yield thinking content if any
+                        if parse_result.thinking_content:
+                            full_thinking_content += parse_result.thinking_content
+                            processed_thinking = thinking_parser.process_for_output(
+                                parse_result.thinking_content,
+                                parse_result.is_first_thinking_chunk,
+                                parse_result.is_last_thinking_chunk,
+                            )
+                            if processed_thinking:
+                                # Send as reasoning_content or content based on mode
+                                if FAKE_REASONING_HANDLING == "as_reasoning_content":
+                                    delta = {"reasoning_content": processed_thinking}
+                                else:
+                                    delta = {"content": processed_thinking}
+                                
+                                if first_chunk:
+                                    delta["role"] = "assistant"
+                                    first_chunk = False
+                                
+                                openai_chunk = {
+                                    "id": completion_id,
+                                    "object": "chat.completion.chunk",
+                                    "created": created_time,
+                                    "model": model,
+                                    "choices": [{"index": 0, "delta": delta, "finish_reason": None}]
+                                }
+                                
+                                chunk_text = f"data: {json.dumps(openai_chunk, ensure_ascii=False)}\n\n"
+                                
+                                if debug_logger:
+                                    debug_logger.log_modified_chunk(chunk_text.encode('utf-8'))
+                                
+                                yield chunk_text
+                        
+                        # Yield regular content if any
+                        if parse_result.regular_content:
+                            delta = {"content": parse_result.regular_content}
+                            if first_chunk:
+                                delta["role"] = "assistant"
+                                first_chunk = False
+                            
+                            openai_chunk = {
+                                "id": completion_id,
+                                "object": "chat.completion.chunk",
+                                "created": created_time,
+                                "model": model,
+                                "choices": [{"index": 0, "delta": delta, "finish_reason": None}]
+                            }
+                            
+                            chunk_text = f"data: {json.dumps(openai_chunk, ensure_ascii=False)}\n\n"
+                            
+                            if debug_logger:
+                                debug_logger.log_modified_chunk(chunk_text.encode('utf-8'))
+                            
+                            yield chunk_text
+                    else:
+                        # No thinking parser - pass through as-is
+                        delta = {"content": content}
+                        if first_chunk:
+                            delta["role"] = "assistant"
+                            first_chunk = False
+                        
+                        openai_chunk = {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": model,
+                            "choices": [{"index": 0, "delta": delta, "finish_reason": None}]
+                        }
+                        
+                        chunk_text = f"data: {json.dumps(openai_chunk, ensure_ascii=False)}\n\n"
+                        
+                        if debug_logger:
+                            debug_logger.log_modified_chunk(chunk_text.encode('utf-8'))
+                        
+                        yield chunk_text
+                
+                elif event["type"] == "usage":
+                    metering_data = event["data"]
+                
+                elif event["type"] == "context_usage":
+                    context_usage_percentage = event["data"]
+        
+        # Finalize thinking parser and yield any remaining content
+        if thinking_parser:
+            final_result = thinking_parser.finalize()
+            
+            if final_result.thinking_content:
+                full_thinking_content += final_result.thinking_content
+                processed_thinking = thinking_parser.process_for_output(
+                    final_result.thinking_content,
+                    final_result.is_first_thinking_chunk,
+                    final_result.is_last_thinking_chunk,
+                )
+                if processed_thinking:
+                    if FAKE_REASONING_HANDLING == "as_reasoning_content":
+                        delta = {"reasoning_content": processed_thinking}
+                    else:
+                        delta = {"content": processed_thinking}
+                    
                     if first_chunk:
                         delta["role"] = "assistant"
                         first_chunk = False
                     
-                    # Form OpenAI chunk
                     openai_chunk = {
                         "id": completion_id,
                         "object": "chat.completion.chunk",
@@ -200,17 +375,34 @@ async def stream_kiro_to_openai_internal(
                     
                     chunk_text = f"data: {json.dumps(openai_chunk, ensure_ascii=False)}\n\n"
                     
-                    # Log modified chunk
                     if debug_logger:
                         debug_logger.log_modified_chunk(chunk_text.encode('utf-8'))
                     
                     yield chunk_text
+            
+            if final_result.regular_content:
+                delta = {"content": final_result.regular_content}
+                if first_chunk:
+                    delta["role"] = "assistant"
+                    first_chunk = False
                 
-                elif event["type"] == "usage":
-                    metering_data = event["data"]
+                openai_chunk = {
+                    "id": completion_id,
+                    "object": "chat.completion.chunk",
+                    "created": created_time,
+                    "model": model,
+                    "choices": [{"index": 0, "delta": delta, "finish_reason": None}]
+                }
                 
-                elif event["type"] == "context_usage":
-                    context_usage_percentage = event["data"]
+                chunk_text = f"data: {json.dumps(openai_chunk, ensure_ascii=False)}\n\n"
+                
+                if debug_logger:
+                    debug_logger.log_modified_chunk(chunk_text.encode('utf-8'))
+                
+                yield chunk_text
+            
+            if thinking_parser.found_thinking_block:
+                logger.debug(f"Thinking block processed: {len(full_thinking_content)} chars")
         
         # Check bracket-style tool calls in full content
         bracket_tool_calls = parse_bracket_tool_calls(full_content)
@@ -541,6 +733,7 @@ async def collect_stream_response(
         Dictionary with full response in OpenAI chat.completion format
     """
     full_content = ""
+    full_reasoning_content = ""
     final_usage = None
     tool_calls = []
     completion_id = generate_completion_id()
@@ -568,6 +761,8 @@ async def collect_stream_response(
             delta = chunk_data.get("choices", [{}])[0].get("delta", {})
             if "content" in delta:
                 full_content += delta["content"]
+            if "reasoning_content" in delta:
+                full_reasoning_content += delta["reasoning_content"]
             if "tool_calls" in delta:
                 tool_calls.extend(delta["tool_calls"])
             
@@ -580,6 +775,8 @@ async def collect_stream_response(
     
     # Form final response
     message = {"role": "assistant", "content": full_content}
+    if full_reasoning_content:
+        message["reasoning_content"] = full_reasoning_content
     if tool_calls:
         # For non-streaming response remove index field from tool_calls,
         # as it's only required for streaming chunks

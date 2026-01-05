@@ -24,11 +24,14 @@ Manages the lifecycle of access tokens:
 - Loading credentials from .env or JSON file
 - Automatic token refresh on expiration
 - Thread-safe refresh using asyncio.Lock
+- Support for both Kiro Desktop Auth and AWS SSO OIDC (kiro-cli)
 """
 
 import asyncio
 import json
-from datetime import datetime, timezone
+import sqlite3
+from datetime import datetime, timezone, timedelta
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -40,8 +43,26 @@ from kiro_gateway.config import (
     get_kiro_refresh_url,
     get_kiro_api_host,
     get_kiro_q_host,
+    get_aws_sso_oidc_url,
 )
 from kiro_gateway.utils import get_machine_fingerprint
+
+
+class AuthType(Enum):
+    """
+    Type of authentication mechanism.
+    
+    KIRO_DESKTOP: Kiro IDE credentials (default)
+        - Uses https://prod.{region}.auth.desktop.kiro.dev/refreshToken
+        - JSON body: {"refreshToken": "..."}
+    
+    AWS_SSO_OIDC: AWS SSO credentials from kiro-cli
+        - Uses https://oidc.{region}.amazonaws.com/token
+        - Form body: grant_type=refresh_token&client_id=...&client_secret=...&refresh_token=...
+        - Requires clientId and clientSecret from credentials file
+    """
+    KIRO_DESKTOP = "kiro_desktop"
+    AWS_SSO_OIDC = "aws_sso_oidc"
 
 
 class KiroAuthManager:
@@ -53,6 +74,7 @@ class KiroAuthManager:
     - Automatic token refresh on expiration
     - Expiration time validation (expiresAt)
     - Saving updated tokens to file
+    - Both Kiro Desktop Auth and AWS SSO OIDC (kiro-cli) authentication
     
     Attributes:
         profile_arn: AWS CodeWhisperer profile ARN
@@ -60,11 +82,19 @@ class KiroAuthManager:
         api_host: API host for the current region
         q_host: Q API host for the current region
         fingerprint: Unique machine fingerprint
+        auth_type: Type of authentication (KIRO_DESKTOP or AWS_SSO_OIDC)
     
     Example:
+        >>> # Kiro Desktop Auth (default)
         >>> auth_manager = KiroAuthManager(
         ...     refresh_token="your_refresh_token",
         ...     region="us-east-1"
+        ... )
+        >>> token = await auth_manager.get_access_token()
+        
+        >>> # AWS SSO OIDC (kiro-cli) - auto-detected from credentials file
+        >>> auth_manager = KiroAuthManager(
+        ...     creds_file="~/.aws/sso/cache/your-cache.json"
         ... )
         >>> token = await auth_manager.get_access_token()
     """
@@ -74,7 +104,10 @@ class KiroAuthManager:
         refresh_token: Optional[str] = None,
         profile_arn: Optional[str] = None,
         region: str = "us-east-1",
-        creds_file: Optional[str] = None
+        creds_file: Optional[str] = None,
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        sqlite_db: Optional[str] = None,
     ):
         """
         Initializes the authentication manager.
@@ -84,17 +117,30 @@ class KiroAuthManager:
             profile_arn: AWS CodeWhisperer profile ARN
             region: AWS region (default: us-east-1)
             creds_file: Path to JSON file with credentials (optional)
+            client_id: OAuth client ID (for AWS SSO OIDC, optional)
+            client_secret: OAuth client secret (for AWS SSO OIDC, optional)
+            sqlite_db: Path to kiro-cli SQLite database (optional)
+                       Default location: ~/.local/share/kiro-cli/data.sqlite3
         """
         self._refresh_token = refresh_token
         self._profile_arn = profile_arn
         self._region = region
         self._creds_file = creds_file
+        self._sqlite_db = sqlite_db
+        
+        # AWS SSO OIDC specific fields
+        self._client_id: Optional[str] = client_id
+        self._client_secret: Optional[str] = client_secret
+        self._scopes: Optional[list] = None  # OAuth scopes for AWS SSO OIDC
         
         self._access_token: Optional[str] = None
         self._expires_at: Optional[datetime] = None
         self._lock = asyncio.Lock()
         self._idc_refresher = None  # Reference to IdCTokenRefresher for fallback
         self._auth_method: Optional[str] = None  # 'IdC' or other
+        
+        # Auth type will be determined after loading credentials
+        self._auth_type: AuthType = AuthType.KIRO_DESKTOP
         
         # Dynamic URLs based on region
         self._refresh_url = get_kiro_refresh_url(region)
@@ -104,20 +150,133 @@ class KiroAuthManager:
         # Fingerprint for User-Agent
         self._fingerprint = get_machine_fingerprint()
         
-        # Load credentials from file if specified
-        if creds_file:
+        # Load credentials from SQLite if specified (takes priority over JSON)
+        if sqlite_db:
+            self._load_credentials_from_sqlite(sqlite_db)
+        # Load credentials from JSON file if specified
+        elif creds_file:
             self._load_credentials_from_file(creds_file)
+        
+        # Determine auth type based on available credentials
+        self._detect_auth_type()
+    
+    def _detect_auth_type(self) -> None:
+        """
+        Detects authentication type based on available credentials.
+        
+        AWS SSO OIDC credentials contain clientId and clientSecret.
+        Kiro Desktop credentials do not contain these fields.
+        """
+        if self._client_id and self._client_secret:
+            self._auth_type = AuthType.AWS_SSO_OIDC
+            logger.info("Detected auth type: AWS SSO OIDC (kiro-cli)")
+        else:
+            self._auth_type = AuthType.KIRO_DESKTOP
+            logger.debug("Using auth type: Kiro Desktop")
+    
+    def _load_credentials_from_sqlite(self, db_path: str) -> None:
+        """
+        Loads credentials from kiro-cli SQLite database.
+        
+        The database contains an auth_kv table with key-value pairs:
+        - 'codewhisperer:odic:token': JSON with access_token, refresh_token, expires_at, region
+        - 'codewhisperer:odic:device-registration': JSON with client_id, client_secret
+        
+        Args:
+            db_path: Path to SQLite database file
+        """
+        try:
+            path = Path(db_path).expanduser()
+            if not path.exists():
+                logger.warning(f"SQLite database not found: {db_path}")
+                return
+            
+            conn = sqlite3.connect(str(path))
+            cursor = conn.cursor()
+            
+            # Load token data (try both kiro-cli and codewhisperer key formats)
+            cursor.execute("SELECT value FROM auth_kv WHERE key = ?", ("kirocli:odic:token",))
+            token_row = cursor.fetchone()
+            if not token_row:
+                cursor.execute("SELECT value FROM auth_kv WHERE key = ?", ("codewhisperer:odic:token",))
+                token_row = cursor.fetchone()
+            
+            if token_row:
+                token_data = json.loads(token_row[0])
+                if token_data:
+                    # Load token fields (using snake_case as in Rust struct)
+                    if 'access_token' in token_data:
+                        self._access_token = token_data['access_token']
+                    if 'refresh_token' in token_data:
+                        self._refresh_token = token_data['refresh_token']
+                    if 'region' in token_data:
+                        self._region = token_data['region']
+                        # Update URLs for new region
+                        self._refresh_url = get_kiro_refresh_url(self._region)
+                        self._api_host = get_kiro_api_host(self._region)
+                        self._q_host = get_kiro_q_host(self._region)
+                    
+                    # Load scopes if available
+                    if 'scopes' in token_data:
+                        self._scopes = token_data['scopes']
+                    
+                    # Parse expires_at (RFC3339 format)
+                    if 'expires_at' in token_data:
+                        try:
+                            expires_str = token_data['expires_at']
+                            # Handle various ISO 8601 formats
+                            if expires_str.endswith('Z'):
+                                self._expires_at = datetime.fromisoformat(expires_str.replace('Z', '+00:00'))
+                            else:
+                                self._expires_at = datetime.fromisoformat(expires_str)
+                        except Exception as e:
+                            logger.warning(f"Failed to parse expires_at from SQLite: {e}")
+            
+            # Load device registration (client_id, client_secret) - try both key formats
+            cursor.execute("SELECT value FROM auth_kv WHERE key = ?", ("kirocli:odic:device-registration",))
+            registration_row = cursor.fetchone()
+            if not registration_row:
+                cursor.execute("SELECT value FROM auth_kv WHERE key = ?", ("codewhisperer:odic:device-registration",))
+                registration_row = cursor.fetchone()
+            
+            if registration_row:
+                registration_data = json.loads(registration_row[0])
+                if registration_data:
+                    if 'client_id' in registration_data:
+                        self._client_id = registration_data['client_id']
+                    if 'client_secret' in registration_data:
+                        self._client_secret = registration_data['client_secret']
+                    # Region from registration takes precedence if not set
+                    if 'region' in registration_data and not self._region:
+                        self._region = registration_data['region']
+                        self._refresh_url = get_kiro_refresh_url(self._region)
+                        self._api_host = get_kiro_api_host(self._region)
+                        self._q_host = get_kiro_q_host(self._region)
+            
+            conn.close()
+            logger.info(f"Credentials loaded from SQLite database: {db_path}")
+            
+        except sqlite3.Error as e:
+            logger.error(f"SQLite error loading credentials: {e}")
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error in SQLite data: {e}")
+        except Exception as e:
+            logger.error(f"Error loading credentials from SQLite: {e}")
     
     def _load_credentials_from_file(self, file_path: str) -> None:
         """
         Loads credentials from a JSON file.
         
-        Supported JSON fields:
+        Supported JSON fields (Kiro Desktop):
         - refreshToken: Refresh token
         - accessToken: Access token (if already available)
         - profileArn: Profile ARN
         - region: AWS region
         - expiresAt: Token expiration time (ISO 8601)
+        
+        Additional fields for AWS SSO OIDC (kiro-cli):
+        - clientId: OAuth client ID
+        - clientSecret: OAuth client secret
         
         Args:
             file_path: Path to JSON file
@@ -131,7 +290,7 @@ class KiroAuthManager:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # Load data from file
+            # Load common data from file
             if 'refreshToken' in data:
                 self._refresh_token = data['refreshToken']
             if 'accessToken' in data:
@@ -144,6 +303,12 @@ class KiroAuthManager:
                 self._refresh_url = get_kiro_refresh_url(self._region)
                 self._api_host = get_kiro_api_host(self._region)
                 self._q_host = get_kiro_q_host(self._region)
+            
+            # Load AWS SSO OIDC specific fields
+            if 'clientId' in data:
+                self._client_id = data['clientId']
+            if 'clientSecret' in data:
+                self._client_secret = data['clientSecret']
             
             # Parse expiresAt
             if 'expiresAt' in data:
@@ -221,9 +386,29 @@ class KiroAuthManager:
         """
         Performs a token refresh request.
         
-        Sends a POST request to Kiro API to obtain a new access token.
-        Updates internal state and saves credentials to file.
+        Routes to appropriate refresh method based on auth type:
+        - KIRO_DESKTOP: Uses Kiro Desktop Auth endpoint
+        - AWS_SSO_OIDC: Uses AWS SSO OIDC endpoint
+        
         If 401 is received and IdC auth is used, falls back to IdC token refresh.
+        
+        Raises:
+            ValueError: If refresh token is not set or response doesn't contain accessToken
+            httpx.HTTPError: On HTTP request error
+        """
+        if self._auth_type == AuthType.AWS_SSO_OIDC:
+            await self._refresh_token_aws_sso_oidc()
+        else:
+            await self._refresh_token_kiro_desktop()
+    
+    async def _refresh_token_kiro_desktop(self) -> None:
+        """
+        Refreshes token using Kiro Desktop Auth endpoint.
+        
+        Endpoint: https://prod.{region}.auth.desktop.kiro.dev/refreshToken
+        Method: POST
+        Content-Type: application/json
+        Body: {"refreshToken": "..."}
         
         Raises:
             ValueError: If refresh token is not set or response doesn't contain accessToken
@@ -232,7 +417,7 @@ class KiroAuthManager:
         if not self._refresh_token:
             raise ValueError("Refresh token is not set")
         
-        logger.info("Refreshing Kiro token...")
+        logger.info("Refreshing Kiro token via Kiro Desktop Auth...")
         
         payload = {'refreshToken': self._refresh_token}
         headers = {
@@ -284,7 +469,72 @@ class KiroAuthManager:
             tz=timezone.utc
         )
         
-        logger.info(f"Token refreshed, expires: {self._expires_at.isoformat()}")
+        logger.info(f"Token refreshed via Kiro Desktop Auth, expires: {self._expires_at.isoformat()}")
+        
+        # Save to file
+        self._save_credentials_to_file()
+    
+    async def _refresh_token_aws_sso_oidc(self) -> None:
+        """
+        Refreshes token using AWS SSO OIDC endpoint.
+        
+        Used by kiro-cli which authenticates via AWS IAM Identity Center.
+        
+        Endpoint: https://oidc.{region}.amazonaws.com/token
+        Method: POST
+        Content-Type: application/x-www-form-urlencoded
+        Body: grant_type=refresh_token&client_id=...&client_secret=...&refresh_token=...
+        
+        Raises:
+            ValueError: If required credentials are not set
+            httpx.HTTPError: On HTTP request error
+        """
+        if not self._refresh_token:
+            raise ValueError("Refresh token is not set")
+        if not self._client_id:
+            raise ValueError("Client ID is not set (required for AWS SSO OIDC)")
+        if not self._client_secret:
+            raise ValueError("Client secret is not set (required for AWS SSO OIDC)")
+        
+        logger.info("Refreshing Kiro token via AWS SSO OIDC...")
+        
+        # AWS SSO OIDC uses form-urlencoded data
+        url = get_aws_sso_oidc_url(self._region)
+        data = {
+            "grant_type": "refresh_token",
+            "client_id": self._client_id,
+            "client_secret": self._client_secret,
+            "refresh_token": self._refresh_token,
+        }
+        
+        # Add scopes if available (required for some AWS SSO configurations)
+        if self._scopes:
+            data["scope"] = " ".join(self._scopes)
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(url, data=data, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+        
+        new_access_token = result.get("accessToken")
+        new_refresh_token = result.get("refreshToken")
+        expires_in = result.get("expiresIn", 3600)
+        
+        if not new_access_token:
+            raise ValueError(f"AWS SSO OIDC response does not contain accessToken: {result}")
+        
+        # Update data
+        self._access_token = new_access_token
+        if new_refresh_token:
+            self._refresh_token = new_refresh_token
+        
+        # Calculate expiration time with buffer (minus 60 seconds)
+        self._expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in - 60)
+        
+        logger.info(f"Token refreshed via AWS SSO OIDC, expires: {self._expires_at.isoformat()}")
         
         # Save to file
         self._save_credentials_to_file()
@@ -357,6 +607,11 @@ class KiroAuthManager:
     def fingerprint(self) -> str:
         """Unique machine fingerprint."""
         return self._fingerprint
+    
+    @property
+    def auth_type(self) -> AuthType:
+        """Authentication type (KIRO_DESKTOP or AWS_SSO_OIDC)."""
+        return self._auth_type
 
     async def get_usage_limits(self) -> dict:
         """

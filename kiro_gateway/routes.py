@@ -48,7 +48,7 @@ from kiro_gateway.models import (
     OAuthStartResponse,
     OAuthStatusResponse,
 )
-from kiro_gateway.auth import KiroAuthManager
+from kiro_gateway.auth import KiroAuthManager, AuthType
 from kiro_gateway.cache import ModelInfoCache
 from kiro_gateway.converters import build_kiro_payload
 from kiro_gateway.streaming import stream_kiro_to_openai, collect_stream_response, stream_with_first_token_retry
@@ -146,14 +146,17 @@ async def get_models(request: Request):
             token = await auth_manager.get_access_token()
             headers = get_kiro_headers(auth_manager, token)
             
+            # Build params - profileArn is only needed for Kiro Desktop auth
+            # AWS SSO OIDC (Builder ID) users don't need profileArn and it causes 403 if sent
+            params = {"origin": "AI_EDITOR"}
+            if auth_manager.auth_type == AuthType.KIRO_DESKTOP and auth_manager.profile_arn:
+                params["profileArn"] = auth_manager.profile_arn
+            
             async with httpx.AsyncClient(timeout=30) as client:
                 response = await client.get(
                     f"{auth_manager.q_host}/ListAvailableModels",
                     headers=headers,
-                    params={
-                        "origin": "AI_EDITOR",
-                        "profileArn": auth_manager.profile_arn or ""
-                    }
+                    params=params
                 )
                 
                 if response.status_code == 200:
@@ -231,11 +234,17 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
     conversation_id = generate_conversation_id()
     
     # Build payload for Kiro
+    # profileArn is only needed for Kiro Desktop auth
+    # AWS SSO OIDC (Builder ID) users don't need profileArn and it causes 403 if sent
+    profile_arn_for_payload = ""
+    if auth_manager.auth_type == AuthType.KIRO_DESKTOP and auth_manager.profile_arn:
+        profile_arn_for_payload = auth_manager.profile_arn
+    
     try:
         kiro_payload = build_kiro_payload(
             request_data,
             conversation_id,
-            auth_manager.profile_arn or ""
+            profile_arn_for_payload
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

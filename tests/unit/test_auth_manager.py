@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
 """
-Unit-тесты для KiroAuthManager.
-Проверяет логику управления токенами Kiro без реальных сетевых запросов.
+Unit tests for KiroAuthManager.
+Tests token management logic for Kiro without real network requests.
 """
 
 import asyncio
@@ -11,105 +11,105 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 import httpx
 
-from kiro_gateway.auth import KiroAuthManager
-from kiro_gateway.config import TOKEN_REFRESH_THRESHOLD
+from kiro_gateway.auth import KiroAuthManager, AuthType
+from kiro_gateway.config import TOKEN_REFRESH_THRESHOLD, get_aws_sso_oidc_url
 
 
 class TestKiroAuthManagerInitialization:
-    """Тесты инициализации KiroAuthManager."""
+    """Tests for KiroAuthManager initialization."""
     
     def test_initialization_stores_credentials(self):
         """
-        Что он делает: Проверяет корректное сохранение credentials при инициализации.
-        Цель: Убедиться, что все параметры конструктора сохраняются в приватных полях.
+        What it does: Verifies correct storage of credentials during initialization.
+        Purpose: Ensure all constructor parameters are stored in private fields.
         """
-        print("Настройка: Создание KiroAuthManager с тестовыми credentials...")
+        print("Setup: Creating KiroAuthManager with test credentials...")
         manager = KiroAuthManager(
             refresh_token="test_refresh_123",
             profile_arn="arn:aws:codewhisperer:us-east-1:123456789:profile/test",
             region="us-east-1"
         )
         
-        print("Проверка: Все credentials сохранены корректно...")
-        print(f"Сравниваем refresh_token: Ожидалось 'test_refresh_123', Получено '{manager._refresh_token}'")
+        print("Verification: All credentials stored correctly...")
+        print(f"Comparing refresh_token: Expected 'test_refresh_123', Got '{manager._refresh_token}'")
         assert manager._refresh_token == "test_refresh_123"
         
-        print(f"Сравниваем profile_arn: Ожидалось 'arn:aws:...', Получено '{manager._profile_arn}'")
+        print(f"Comparing profile_arn: Expected 'arn:aws:...', Got '{manager._profile_arn}'")
         assert manager._profile_arn == "arn:aws:codewhisperer:us-east-1:123456789:profile/test"
         
-        print(f"Сравниваем region: Ожидалось 'us-east-1', Получено '{manager._region}'")
+        print(f"Comparing region: Expected 'us-east-1', Got '{manager._region}'")
         assert manager._region == "us-east-1"
         
-        print("Проверка: Токен изначально пустой...")
+        print("Verification: Token is initially empty...")
         assert manager._access_token is None
         assert manager._expires_at is None
     
     def test_initialization_sets_correct_urls_for_region(self):
         """
-        Что он делает: Проверяет формирование URL на основе региона.
-        Цель: Убедиться, что URL динамически формируются с правильным регионом.
+        What it does: Verifies URL formation based on region.
+        Purpose: Ensure URLs are dynamically formed with the correct region.
         """
-        print("Настройка: Создание KiroAuthManager с регионом eu-west-1...")
+        print("Setup: Creating KiroAuthManager with region eu-west-1...")
         manager = KiroAuthManager(
             refresh_token="test_token",
             region="eu-west-1"
         )
         
-        print("Проверка: URL содержат правильный регион...")
-        print(f"Сравниваем refresh_url: Ожидалось 'eu-west-1' в URL, Получено '{manager._refresh_url}'")
+        print("Verification: URLs contain correct region...")
+        print(f"Comparing refresh_url: Expected 'eu-west-1' in URL, Got '{manager._refresh_url}'")
         assert "eu-west-1" in manager._refresh_url
         
-        print(f"Сравниваем api_host: Ожидалось 'eu-west-1' в URL, Получено '{manager._api_host}'")
+        print(f"Comparing api_host: Expected 'eu-west-1' in URL, Got '{manager._api_host}'")
         assert "eu-west-1" in manager._api_host
         
-        print(f"Сравниваем q_host: Ожидалось 'eu-west-1' в URL, Получено '{manager._q_host}'")
+        print(f"Comparing q_host: Expected 'eu-west-1' in URL, Got '{manager._q_host}'")
         assert "eu-west-1" in manager._q_host
     
     def test_initialization_generates_fingerprint(self):
         """
-        Что он делает: Проверяет генерацию уникального fingerprint.
-        Цель: Убедиться, что fingerprint генерируется и имеет корректный формат.
+        What it does: Verifies unique fingerprint generation.
+        Purpose: Ensure fingerprint is generated and has correct format.
         """
-        print("Настройка: Создание KiroAuthManager...")
+        print("Setup: Creating KiroAuthManager...")
         manager = KiroAuthManager(refresh_token="test_token")
         
-        print("Проверка: Fingerprint сгенерирован...")
+        print("Verification: Fingerprint generated...")
         print(f"Fingerprint: {manager._fingerprint}")
         assert manager._fingerprint is not None
         assert len(manager._fingerprint) == 64  # SHA256 hex digest
 
 
 class TestKiroAuthManagerCredentialsFile:
-    """Тесты загрузки credentials из файла."""
+    """Tests for loading credentials from file."""
     
     def test_load_credentials_from_file(self, temp_creds_file):
         """
-        Что он делает: Проверяет загрузку credentials из JSON файла.
-        Цель: Убедиться, что данные корректно читаются из файла.
+        What it does: Verifies loading credentials from JSON file.
+        Purpose: Ensure data is correctly read from file.
         """
-        print(f"Настройка: Создание KiroAuthManager с файлом credentials: {temp_creds_file}")
+        print(f"Setup: Creating KiroAuthManager with credentials file: {temp_creds_file}")
         manager = KiroAuthManager(creds_file=temp_creds_file)
         
-        print("Проверка: Данные загружены из файла...")
-        print(f"Сравниваем access_token: Ожидалось 'file_access_token', Получено '{manager._access_token}'")
+        print("Verification: Data loaded from file...")
+        print(f"Comparing access_token: Expected 'file_access_token', Got '{manager._access_token}'")
         assert manager._access_token == "file_access_token"
         
-        print(f"Сравниваем refresh_token: Ожидалось 'file_refresh_token', Получено '{manager._refresh_token}'")
+        print(f"Comparing refresh_token: Expected 'file_refresh_token', Got '{manager._refresh_token}'")
         assert manager._refresh_token == "file_refresh_token"
         
-        print(f"Сравниваем region: Ожидалось 'us-east-1', Получено '{manager._region}'")
+        print(f"Comparing region: Expected 'us-east-1', Got '{manager._region}'")
         assert manager._region == "us-east-1"
         
-        print("Проверка: expiresAt распарсен корректно...")
+        print("Verification: expiresAt parsed correctly...")
         assert manager._expires_at is not None
         assert manager._expires_at.year == 2099
     
     def test_load_credentials_file_not_found(self, tmp_path):
         """
-        Что он делает: Проверяет обработку отсутствующего файла credentials.
-        Цель: Убедиться, что приложение не падает при отсутствии файла.
+        What it does: Verifies handling of missing credentials file.
+        Purpose: Ensure application doesn't crash when file is missing.
         """
-        print("Настройка: Создание KiroAuthManager с несуществующим файлом...")
+        print("Setup: Creating KiroAuthManager with non-existent file...")
         non_existent_file = str(tmp_path / "non_existent.json")
         
         manager = KiroAuthManager(
@@ -117,88 +117,88 @@ class TestKiroAuthManagerCredentialsFile:
             creds_file=non_existent_file
         )
         
-        print("Проверка: Используется fallback refresh_token...")
-        print(f"Сравниваем refresh_token: Ожидалось 'fallback_token', Получено '{manager._refresh_token}'")
+        print("Verification: Fallback refresh_token is used...")
+        print(f"Comparing refresh_token: Expected 'fallback_token', Got '{manager._refresh_token}'")
         assert manager._refresh_token == "fallback_token"
 
 
 class TestKiroAuthManagerTokenExpiration:
-    """Тесты проверки истечения токена."""
+    """Tests for token expiration checking."""
     
     def test_is_token_expiring_soon_returns_true_when_no_expires_at(self):
         """
-        Что он делает: Проверяет, что без expires_at токен считается истекающим.
-        Цель: Убедиться в безопасном поведении при отсутствии информации о времени.
+        What it does: Verifies that without expires_at token is considered expiring.
+        Purpose: Ensure safe behavior when time information is missing.
         """
-        print("Настройка: Создание KiroAuthManager без expires_at...")
+        print("Setup: Creating KiroAuthManager without expires_at...")
         manager = KiroAuthManager(refresh_token="test_token")
         manager._expires_at = None
         
-        print("Проверка: is_token_expiring_soon возвращает True...")
+        print("Verification: is_token_expiring_soon returns True...")
         result = manager.is_token_expiring_soon()
-        print(f"Сравниваем результат: Ожидалось True, Получено {result}")
+        print(f"Comparing result: Expected True, Got {result}")
         assert result is True
     
     def test_is_token_expiring_soon_returns_true_when_expired(self):
         """
-        Что он делает: Проверяет, что истекший токен определяется корректно.
-        Цель: Убедиться, что токен в прошлом считается истекающим.
+        What it does: Verifies that expired token is correctly identified.
+        Purpose: Ensure token in the past is considered expiring.
         """
-        print("Настройка: Создание KiroAuthManager с истекшим токеном...")
+        print("Setup: Creating KiroAuthManager with expired token...")
         manager = KiroAuthManager(refresh_token="test_token")
         manager._expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
         
-        print("Проверка: is_token_expiring_soon возвращает True для истекшего токена...")
+        print("Verification: is_token_expiring_soon returns True for expired token...")
         result = manager.is_token_expiring_soon()
-        print(f"Сравниваем результат: Ожидалось True, Получено {result}")
+        print(f"Comparing result: Expected True, Got {result}")
         assert result is True
     
     def test_is_token_expiring_soon_returns_true_within_threshold(self):
         """
-        Что он делает: Проверяет, что токен в пределах threshold считается истекающим.
-        Цель: Убедиться, что токен обновляется заранее (за 10 минут до истечения).
+        What it does: Verifies that token within threshold is considered expiring.
+        Purpose: Ensure token is refreshed in advance (10 minutes before expiration).
         """
-        print("Настройка: Создание KiroAuthManager с токеном, истекающим через 5 минут...")
+        print("Setup: Creating KiroAuthManager with token expiring in 5 minutes...")
         manager = KiroAuthManager(refresh_token="test_token")
         manager._expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
         
-        print(f"TOKEN_REFRESH_THRESHOLD = {TOKEN_REFRESH_THRESHOLD} секунд")
-        print("Проверка: is_token_expiring_soon возвращает True (5 мин < 10 мин threshold)...")
+        print(f"TOKEN_REFRESH_THRESHOLD = {TOKEN_REFRESH_THRESHOLD} seconds")
+        print("Verification: is_token_expiring_soon returns True (5 min < 10 min threshold)...")
         result = manager.is_token_expiring_soon()
-        print(f"Сравниваем результат: Ожидалось True, Получено {result}")
+        print(f"Comparing result: Expected True, Got {result}")
         assert result is True
     
     def test_is_token_expiring_soon_returns_false_when_valid(self):
         """
-        Что он делает: Проверяет, что валидный токен не считается истекающим.
-        Цель: Убедиться, что токен далеко в будущем не требует обновления.
+        What it does: Verifies that valid token is not considered expiring.
+        Purpose: Ensure token far in the future doesn't require refresh.
         """
-        print("Настройка: Создание KiroAuthManager с токеном, истекающим через 1 час...")
+        print("Setup: Creating KiroAuthManager with token expiring in 1 hour...")
         manager = KiroAuthManager(refresh_token="test_token")
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         
-        print("Проверка: is_token_expiring_soon возвращает False...")
+        print("Verification: is_token_expiring_soon returns False...")
         result = manager.is_token_expiring_soon()
-        print(f"Сравниваем результат: Ожидалось False, Получено {result}")
+        print(f"Comparing result: Expected False, Got {result}")
         assert result is False
 
 
 class TestKiroAuthManagerTokenRefresh:
-    """Тесты механизма обновления токена."""
+    """Tests for token refresh mechanism."""
     
     @pytest.mark.asyncio
     async def test_refresh_token_successful(self, valid_kiro_token, mock_kiro_token_response):
         """
-        Что он делает: Тестирует успешное обновление токена через Kiro API.
-        Цель: Проверить, что при успешном ответе токен и время истечения устанавливаются.
+        What it does: Tests successful token refresh via Kiro API.
+        Purpose: Verify that on successful response token and expiration time are set.
         """
-        print("Настройка: Создание KiroAuthManager...")
+        print("Setup: Creating KiroAuthManager...")
         manager = KiroAuthManager(
             refresh_token="test_refresh",
             region="us-east-1"
         )
         
-        print("Настройка: Мокирование успешного ответа от Kiro...")
+        print("Setup: Mocking successful response from Kiro...")
         mock_response = AsyncMock()
         mock_response.status_code = 200
         mock_response.json = Mock(return_value=mock_kiro_token_response())
@@ -211,29 +211,29 @@ class TestKiroAuthManagerTokenRefresh:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
             
-            print("Действие: Вызов _refresh_token_request()...")
+            print("Action: Calling _refresh_token_request()...")
             await manager._refresh_token_request()
             
-            print("Проверка: Токен установлен корректно...")
-            print(f"Сравниваем access_token: Ожидалось '{valid_kiro_token}', Получено '{manager._access_token}'")
+            print("Verification: Token set correctly...")
+            print(f"Comparing access_token: Expected '{valid_kiro_token}', Got '{manager._access_token}'")
             assert manager._access_token == valid_kiro_token
             
-            print("Проверка: Время истечения установлено...")
+            print("Verification: Expiration time set...")
             assert manager._expires_at is not None
             
-            print("Проверка: Был сделан POST запрос...")
+            print("Verification: POST request was made...")
             mock_client.post.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_refresh_token_updates_refresh_token(self, mock_kiro_token_response):
         """
-        Что он делает: Проверяет обновление refresh_token из ответа.
-        Цель: Убедиться, что новый refresh_token сохраняется.
+        What it does: Verifies refresh_token update from response.
+        Purpose: Ensure new refresh_token is saved.
         """
-        print("Настройка: Создание KiroAuthManager...")
+        print("Setup: Creating KiroAuthManager...")
         manager = KiroAuthManager(refresh_token="old_refresh_token")
         
-        print("Настройка: Мокирование ответа с новым refresh_token...")
+        print("Setup: Mocking response with new refresh_token...")
         mock_response = AsyncMock()
         mock_response.status_code = 200
         mock_response.json = Mock(return_value=mock_kiro_token_response())
@@ -246,26 +246,26 @@ class TestKiroAuthManagerTokenRefresh:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
             
-            print("Действие: Обновление токена...")
+            print("Action: Refreshing token...")
             await manager._refresh_token_request()
             
-            print("Проверка: refresh_token обновлен...")
-            print(f"Сравниваем refresh_token: Ожидалось 'new_refresh_token_xyz', Получено '{manager._refresh_token}'")
+            print("Verification: refresh_token updated...")
+            print(f"Comparing refresh_token: Expected 'new_refresh_token_xyz', Got '{manager._refresh_token}'")
             assert manager._refresh_token == "new_refresh_token_xyz"
     
     @pytest.mark.asyncio
     async def test_refresh_token_missing_access_token_raises(self):
         """
-        Что он делает: Проверяет обработку ответа без accessToken.
-        Цель: Убедиться, что выбрасывается исключение при некорректном ответе.
+        What it does: Verifies handling of response without accessToken.
+        Purpose: Ensure exception is raised on invalid response.
         """
-        print("Настройка: Создание KiroAuthManager...")
+        print("Setup: Creating KiroAuthManager...")
         manager = KiroAuthManager(refresh_token="test_refresh")
         
-        print("Настройка: Мокирование ответа без accessToken...")
+        print("Setup: Mocking response without accessToken...")
         mock_response = AsyncMock()
         mock_response.status_code = 200
-        mock_response.json = Mock(return_value={"expiresIn": 3600})  # Нет accessToken!
+        mock_response.json = Mock(return_value={"expiresIn": 3600})  # No accessToken!
         mock_response.raise_for_status = Mock()
         
         with patch('kiro_gateway.auth.httpx.AsyncClient') as mock_client_class:
@@ -275,46 +275,46 @@ class TestKiroAuthManagerTokenRefresh:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
             
-            print("Действие: Попытка обновления токена...")
+            print("Action: Attempting token refresh...")
             with pytest.raises(ValueError) as exc_info:
                 await manager._refresh_token_request()
             
-            print(f"Проверка: Выброшено ValueError сообщением: {exc_info.value}")
+            print(f"Verification: ValueError raised with message: {exc_info.value}")
             assert "accessToken" in str(exc_info.value)
     
     @pytest.mark.asyncio
     async def test_refresh_token_no_refresh_token_raises(self):
         """
-        Что он делает: Проверяет обработку отсутствия refresh_token.
-        Цель: Убедиться, что выбрасывается исключение без refresh_token.
+        What it does: Verifies handling of missing refresh_token.
+        Purpose: Ensure exception is raised without refresh_token.
         """
-        print("Настройка: Создание KiroAuthManager без refresh_token...")
+        print("Setup: Creating KiroAuthManager without refresh_token...")
         manager = KiroAuthManager()
         manager._refresh_token = None
         
-        print("Действие: Попытка обновления токена без refresh_token...")
+        print("Action: Attempting token refresh without refresh_token...")
         with pytest.raises(ValueError) as exc_info:
             await manager._refresh_token_request()
         
-        print(f"Проверка: Выброшено ValueError: {exc_info.value}")
+        print(f"Verification: ValueError raised: {exc_info.value}")
         assert "Refresh token" in str(exc_info.value)
 
 
 class TestKiroAuthManagerGetAccessToken:
-    """Тесты публичного метода get_access_token."""
+    """Tests for public get_access_token method."""
     
     @pytest.mark.asyncio
     async def test_get_access_token_refreshes_when_expired(self, valid_kiro_token, mock_kiro_token_response):
         """
-        Что он делает: Проверяет автоматическое обновление истекшего токена.
-        Цель: Убедиться, что устаревший токен обновляется перед возвратом.
+        What it does: Verifies automatic refresh of expired token.
+        Purpose: Ensure stale token is refreshed before returning.
         """
-        print("Настройка: Создание KiroAuthManager с истекшим токеном...")
+        print("Setup: Creating KiroAuthManager with expired token...")
         manager = KiroAuthManager(refresh_token="test_refresh")
         manager._access_token = "old_expired_token"
         manager._expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
         
-        print("Настройка: Мокирование успешного обновления...")
+        print("Setup: Mocking successful refresh...")
         mock_response = AsyncMock()
         mock_response.status_code = 200
         mock_response.json = Mock(return_value=mock_kiro_token_response())
@@ -327,51 +327,51 @@ class TestKiroAuthManagerGetAccessToken:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
             
-            print("Действие: Запрос токена через get_access_token()...")
+            print("Action: Requesting token via get_access_token()...")
             token = await manager.get_access_token()
             
-            print("Проверка: Получен новый токен, а не истекший...")
-            print(f"Сравниваем токен: Ожидалось '{valid_kiro_token}', Получено '{token}'")
+            print("Verification: Got new token, not expired one...")
+            print(f"Comparing token: Expected '{valid_kiro_token}', Got '{token}'")
             assert token == valid_kiro_token
             assert token != "old_expired_token"
             
-            print("Проверка: _refresh_token_request был вызван...")
+            print("Verification: _refresh_token_request was called...")
             mock_client.post.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_get_access_token_returns_valid_without_refresh(self, valid_kiro_token):
         """
-        Что он делает: Проверяет возврат валидного токена без обновления.
-        Цель: Убедиться, что не делаются лишние запросы, если токен валиден.
+        What it does: Verifies valid token is returned without refresh.
+        Purpose: Ensure no unnecessary requests are made if token is valid.
         """
-        print("Настройка: Создание KiroAuthManager с валидным токеном...")
+        print("Setup: Creating KiroAuthManager with valid token...")
         manager = KiroAuthManager(refresh_token="test_refresh")
         manager._access_token = valid_kiro_token
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         
-        print("Настройка: Мокирование httpx для отслеживания вызовов...")
+        print("Setup: Mocking httpx to track calls...")
         with patch('kiro_gateway.auth.httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
             mock_client.post = AsyncMock()
             mock_client_class.return_value = mock_client
             
-            print("Действие: Запрос валидного токена...")
+            print("Action: Requesting valid token...")
             token = await manager.get_access_token()
             
-            print("Проверка: Возвращен существующий токен...")
-            print(f"Сравниваем токен: Ожидалось '{valid_kiro_token}', Получено '{token}'")
+            print("Verification: Existing token returned...")
+            print(f"Comparing token: Expected '{valid_kiro_token}', Got '{token}'")
             assert token == valid_kiro_token
             
-            print("Проверка: _refresh_token НЕ был вызван (нет сетевых запросов)...")
+            print("Verification: _refresh_token was NOT called (no network requests)...")
             mock_client.post.assert_not_called()
     
     @pytest.mark.asyncio
     async def test_get_access_token_thread_safety(self, valid_kiro_token, mock_kiro_token_response):
         """
-        Что он делает: Проверяет потокобезопасность через asyncio.Lock.
-        Цель: Убедиться, что параллельные вызовы не приводят к race condition.
+        What it does: Verifies thread safety via asyncio.Lock.
+        Purpose: Ensure parallel calls don't cause race conditions.
         """
-        print("Настройка: Создание KiroAuthManager...")
+        print("Setup: Creating KiroAuthManager...")
         manager = KiroAuthManager(refresh_token="test_refresh")
         manager._access_token = None
         manager._expires_at = None
@@ -381,40 +381,40 @@ class TestKiroAuthManagerGetAccessToken:
         async def mock_refresh():
             nonlocal refresh_call_count
             refresh_call_count += 1
-            await asyncio.sleep(0.1)  # Имитация задержки
+            await asyncio.sleep(0.1)  # Simulate delay
             manager._access_token = valid_kiro_token
             manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         
-        print("Настройка: Патчинг _refresh_token_request для отслеживания вызовов...")
+        print("Setup: Patching _refresh_token_request to track calls...")
         with patch.object(manager, '_refresh_token_request', side_effect=mock_refresh):
-            print("Действие: 5 параллельных вызовов get_access_token()...")
+            print("Action: 5 parallel get_access_token() calls...")
             tokens = await asyncio.gather(*[
                 manager.get_access_token() for _ in range(5)
             ])
             
-            print("Проверка: Все вызовы получили одинаковый токен...")
+            print("Verification: All calls got the same token...")
             assert all(token == valid_kiro_token for token in tokens)
             
-            print(f"Проверка: _refresh_token вызван ТОЛЬКО ОДИН РАЗ (благодаря lock)...")
-            print(f"Сравниваем количество вызовов: Ожидалось 1, Получено {refresh_call_count}")
+            print(f"Verification: _refresh_token called ONLY ONCE (thanks to lock)...")
+            print(f"Comparing call count: Expected 1, Got {refresh_call_count}")
             assert refresh_call_count == 1
 
 
 class TestKiroAuthManagerForceRefresh:
-    """Тесты принудительного обновления токена."""
+    """Tests for forced token refresh."""
     
     @pytest.mark.asyncio
     async def test_force_refresh_updates_token(self, valid_kiro_token, mock_kiro_token_response):
         """
-        Что он делает: Проверяет принудительное обновление токена.
-        Цель: Убедиться, что force_refresh всегда обновляет токен.
+        What it does: Verifies forced token refresh.
+        Purpose: Ensure force_refresh always refreshes the token.
         """
-        print("Настройка: Создание KiroAuthManager с валидным токеном...")
+        print("Setup: Creating KiroAuthManager with valid token...")
         manager = KiroAuthManager(refresh_token="test_refresh")
         manager._access_token = "old_but_valid_token"
         manager._expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
         
-        print("Настройка: Мокирование обновления...")
+        print("Setup: Mocking refresh...")
         mock_response = AsyncMock()
         mock_response.status_code = 200
         mock_response.json = Mock(return_value=mock_kiro_token_response())
@@ -427,74 +427,740 @@ class TestKiroAuthManagerForceRefresh:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
             
-            print("Действие: Принудительное обновление токена...")
+            print("Action: Force refreshing token...")
             token = await manager.force_refresh()
             
-            print("Проверка: Токен обновлен, несмотря на валидность старого...")
-            print(f"Сравниваем токен: Ожидалось '{valid_kiro_token}', Получено '{token}'")
+            print("Verification: Token refreshed despite old one being valid...")
+            print(f"Comparing token: Expected '{valid_kiro_token}', Got '{token}'")
             assert token == valid_kiro_token
             
-            print("Проверка: POST запрос был сделан...")
+            print("Verification: POST request was made...")
             mock_client.post.assert_called_once()
 
 
 class TestKiroAuthManagerProperties:
-    """Тесты свойств KiroAuthManager."""
+    """Tests for KiroAuthManager properties."""
     
     def test_profile_arn_property(self):
         """
-        Что он делает: Проверяет свойство profile_arn.
-        Цель: Убедиться, что profile_arn доступен через property.
+        What it does: Verifies profile_arn property.
+        Purpose: Ensure profile_arn is accessible via property.
         """
-        print("Настройка: Создание KiroAuthManager с profile_arn...")
+        print("Setup: Creating KiroAuthManager with profile_arn...")
         manager = KiroAuthManager(
             refresh_token="test",
             profile_arn="arn:aws:test:profile"
         )
         
-        print("Проверка: profile_arn доступен...")
-        print(f"Сравниваем profile_arn: Ожидалось 'arn:aws:test:profile', Получено '{manager.profile_arn}'")
+        print("Verification: profile_arn accessible...")
+        print(f"Comparing profile_arn: Expected 'arn:aws:test:profile', Got '{manager.profile_arn}'")
         assert manager.profile_arn == "arn:aws:test:profile"
     
     def test_region_property(self):
         """
-        Что он делает: Проверяет свойство region.
-        Цель: Убедиться, что region доступен через property.
+        What it does: Verifies region property.
+        Purpose: Ensure region is accessible via property.
         """
-        print("Настройка: Создание KiroAuthManager с region...")
+        print("Setup: Creating KiroAuthManager with region...")
         manager = KiroAuthManager(
             refresh_token="test",
             region="eu-west-1"
         )
         
-        print("Проверка: region доступен...")
-        print(f"Сравниваем region: Ожидалось 'eu-west-1', Получено '{manager.region}'")
+        print("Verification: region accessible...")
+        print(f"Comparing region: Expected 'eu-west-1', Got '{manager.region}'")
         assert manager.region == "eu-west-1"
     
     def test_api_host_property(self):
         """
-        Что он делает: Проверяет свойство api_host.
-        Цель: Убедиться, что api_host формируется корректно.
+        What it does: Verifies api_host property.
+        Purpose: Ensure api_host is formed correctly.
         """
-        print("Настройка: Создание KiroAuthManager...")
+        print("Setup: Creating KiroAuthManager...")
         manager = KiroAuthManager(
             refresh_token="test",
             region="us-east-1"
         )
         
-        print("Проверка: api_host содержит codewhisperer и регион...")
+        print("Verification: api_host contains codewhisperer and region...")
         print(f"api_host: {manager.api_host}")
         assert "codewhisperer" in manager.api_host
         assert "us-east-1" in manager.api_host
     
     def test_fingerprint_property(self):
         """
-        Что он делает: Проверяет свойство fingerprint.
-        Цель: Убедиться, что fingerprint доступен через property.
+        What it does: Verifies fingerprint property.
+        Purpose: Ensure fingerprint is accessible via property.
         """
-        print("Настройка: Создание KiroAuthManager...")
+        print("Setup: Creating KiroAuthManager...")
         manager = KiroAuthManager(refresh_token="test")
         
-        print("Проверка: fingerprint доступен и имеет корректную длину...")
+        print("Verification: fingerprint accessible and has correct length...")
         print(f"fingerprint: {manager.fingerprint}")
         assert len(manager.fingerprint) == 64
+
+
+# =============================================================================
+# Tests for AuthType enum
+# =============================================================================
+
+class TestAuthTypeEnum:
+    """Tests for AuthType enum."""
+    
+    def test_auth_type_enum_values(self):
+        """
+        What it does: Verifies AuthType enum values.
+        Purpose: Ensure enum contains KIRO_DESKTOP and AWS_SSO_OIDC.
+        """
+        print("Verification: AuthType contains KIRO_DESKTOP...")
+        assert AuthType.KIRO_DESKTOP.value == "kiro_desktop"
+        
+        print("Verification: AuthType contains AWS_SSO_OIDC...")
+        assert AuthType.AWS_SSO_OIDC.value == "aws_sso_oidc"
+        
+        print(f"Comparing value count: Expected 2, Got {len(AuthType)}")
+        assert len(AuthType) == 2
+
+
+# =============================================================================
+# Tests for _detect_auth_type()
+# =============================================================================
+
+class TestKiroAuthManagerDetectAuthType:
+    """Tests for _detect_auth_type() method."""
+    
+    def test_detect_auth_type_kiro_desktop_when_no_client_credentials(self):
+        """
+        What it does: Verifies KIRO_DESKTOP type detection without client credentials.
+        Purpose: Ensure KIRO_DESKTOP is used without clientId/clientSecret.
+        """
+        print("Setup: Creating KiroAuthManager without client credentials...")
+        manager = KiroAuthManager(refresh_token="test_token")
+        
+        print("Verification: auth_type = KIRO_DESKTOP...")
+        print(f"Comparing auth_type: Expected KIRO_DESKTOP, Got {manager.auth_type}")
+        assert manager.auth_type == AuthType.KIRO_DESKTOP
+    
+    def test_detect_auth_type_aws_sso_oidc_when_client_credentials_present(self):
+        """
+        What it does: Verifies AWS_SSO_OIDC type detection with client credentials.
+        Purpose: Ensure AWS_SSO_OIDC is used with clientId and clientSecret.
+        """
+        print("Setup: Creating KiroAuthManager with client credentials...")
+        manager = KiroAuthManager(
+            refresh_token="test_token",
+            client_id="test_client_id",
+            client_secret="test_client_secret"
+        )
+        
+        print("Verification: auth_type = AWS_SSO_OIDC...")
+        print(f"Comparing auth_type: Expected AWS_SSO_OIDC, Got {manager.auth_type}")
+        assert manager.auth_type == AuthType.AWS_SSO_OIDC
+    
+    def test_detect_auth_type_kiro_desktop_when_only_client_id(self):
+        """
+        What it does: Verifies type detection with only clientId (no secret).
+        Purpose: Ensure KIRO_DESKTOP is used without clientSecret.
+        """
+        print("Setup: Creating KiroAuthManager with only client_id...")
+        manager = KiroAuthManager(
+            refresh_token="test_token",
+            client_id="test_client_id"
+        )
+        
+        print("Verification: auth_type = KIRO_DESKTOP (both id and secret required)...")
+        print(f"Comparing auth_type: Expected KIRO_DESKTOP, Got {manager.auth_type}")
+        assert manager.auth_type == AuthType.KIRO_DESKTOP
+
+
+# =============================================================================
+# Tests for loading AWS SSO credentials from JSON file
+# =============================================================================
+
+class TestKiroAuthManagerAwsSsoCredentialsFile:
+    """Tests for loading AWS SSO OIDC credentials from JSON file."""
+    
+    def test_load_credentials_from_file_with_client_id_and_secret(self, temp_aws_sso_creds_file):
+        """
+        What it does: Verifies loading clientId and clientSecret from JSON file.
+        Purpose: Ensure AWS SSO fields are correctly read from file.
+        """
+        print(f"Setup: Creating KiroAuthManager with AWS SSO file: {temp_aws_sso_creds_file}")
+        manager = KiroAuthManager(creds_file=temp_aws_sso_creds_file)
+        
+        print("Verification: clientId loaded...")
+        print(f"Comparing client_id: Expected 'test_client_id_12345', Got '{manager._client_id}'")
+        assert manager._client_id == "test_client_id_12345"
+        
+        print("Verification: clientSecret loaded...")
+        print(f"Comparing client_secret: Expected 'test_client_secret_67890', Got '{manager._client_secret}'")
+        assert manager._client_secret == "test_client_secret_67890"
+    
+    def test_load_credentials_from_file_auto_detects_aws_sso_oidc(self, temp_aws_sso_creds_file):
+        """
+        What it does: Verifies auto-detection of auth type after loading from file.
+        Purpose: Ensure auth_type automatically becomes AWS_SSO_OIDC.
+        """
+        print(f"Setup: Creating KiroAuthManager with AWS SSO file: {temp_aws_sso_creds_file}")
+        manager = KiroAuthManager(creds_file=temp_aws_sso_creds_file)
+        
+        print("Verification: auth_type automatically detected as AWS_SSO_OIDC...")
+        print(f"Comparing auth_type: Expected AWS_SSO_OIDC, Got {manager.auth_type}")
+        assert manager.auth_type == AuthType.AWS_SSO_OIDC
+    
+    def test_load_kiro_desktop_file_stays_kiro_desktop(self, temp_creds_file):
+        """
+        What it does: Verifies that Kiro Desktop file doesn't change type to AWS SSO.
+        Purpose: Ensure file without clientId/clientSecret stays KIRO_DESKTOP.
+        """
+        print(f"Setup: Creating KiroAuthManager with Kiro Desktop file: {temp_creds_file}")
+        manager = KiroAuthManager(creds_file=temp_creds_file)
+        
+        print("Verification: auth_type stays KIRO_DESKTOP...")
+        print(f"Comparing auth_type: Expected KIRO_DESKTOP, Got {manager.auth_type}")
+        assert manager.auth_type == AuthType.KIRO_DESKTOP
+
+
+# =============================================================================
+# Tests for loading credentials from SQLite
+# =============================================================================
+
+class TestKiroAuthManagerSqliteCredentials:
+    """Tests for loading credentials from SQLite database (kiro-cli format)."""
+    
+    def test_load_credentials_from_sqlite_success(self, temp_sqlite_db):
+        """
+        What it does: Verifies successful loading of credentials from SQLite.
+        Purpose: Ensure all data is correctly read from database.
+        """
+        print(f"Setup: Creating KiroAuthManager with SQLite: {temp_sqlite_db}")
+        manager = KiroAuthManager(sqlite_db=temp_sqlite_db)
+        
+        print("Verification: access_token loaded...")
+        print(f"Comparing access_token: Expected 'sqlite_access_token', Got '{manager._access_token}'")
+        assert manager._access_token == "sqlite_access_token"
+        
+        print("Verification: refresh_token loaded...")
+        print(f"Comparing refresh_token: Expected 'sqlite_refresh_token', Got '{manager._refresh_token}'")
+        assert manager._refresh_token == "sqlite_refresh_token"
+    
+    def test_load_credentials_from_sqlite_file_not_found(self, tmp_path):
+        """
+        What it does: Verifies handling of missing SQLite file.
+        Purpose: Ensure application doesn't crash when file is missing.
+        """
+        print("Setup: Creating KiroAuthManager with non-existent SQLite file...")
+        non_existent_db = str(tmp_path / "non_existent.sqlite3")
+        
+        manager = KiroAuthManager(
+            refresh_token="fallback_token",
+            sqlite_db=non_existent_db
+        )
+        
+        print("Verification: Fallback refresh_token is used...")
+        print(f"Comparing refresh_token: Expected 'fallback_token', Got '{manager._refresh_token}'")
+        assert manager._refresh_token == "fallback_token"
+    
+    def test_load_credentials_from_sqlite_loads_token_data(self, temp_sqlite_db):
+        """
+        What it does: Verifies loading token data from SQLite.
+        Purpose: Ensure access_token, refresh_token, region are loaded.
+        """
+        print(f"Setup: Creating KiroAuthManager with SQLite: {temp_sqlite_db}")
+        manager = KiroAuthManager(sqlite_db=temp_sqlite_db)
+        
+        print("Verification: region loaded from SQLite...")
+        print(f"Comparing region: Expected 'eu-west-1', Got '{manager._region}'")
+        assert manager._region == "eu-west-1"
+        
+        print("Verification: expires_at parsed...")
+        assert manager._expires_at is not None
+        assert manager._expires_at.year == 2099
+    
+    def test_load_credentials_from_sqlite_loads_device_registration(self, temp_sqlite_db):
+        """
+        What it does: Verifies loading device registration from SQLite.
+        Purpose: Ensure client_id and client_secret are loaded.
+        """
+        print(f"Setup: Creating KiroAuthManager with SQLite: {temp_sqlite_db}")
+        manager = KiroAuthManager(sqlite_db=temp_sqlite_db)
+        
+        print("Verification: client_id loaded...")
+        print(f"Comparing client_id: Expected 'sqlite_client_id', Got '{manager._client_id}'")
+        assert manager._client_id == "sqlite_client_id"
+        
+        print("Verification: client_secret loaded...")
+        print(f"Comparing client_secret: Expected 'sqlite_client_secret', Got '{manager._client_secret}'")
+        assert manager._client_secret == "sqlite_client_secret"
+    
+    def test_load_credentials_from_sqlite_auto_detects_aws_sso_oidc(self, temp_sqlite_db):
+        """
+        What it does: Verifies auto-detection of auth type after loading from SQLite.
+        Purpose: Ensure auth_type automatically becomes AWS_SSO_OIDC.
+        """
+        print(f"Setup: Creating KiroAuthManager with SQLite: {temp_sqlite_db}")
+        manager = KiroAuthManager(sqlite_db=temp_sqlite_db)
+        
+        print("Verification: auth_type automatically detected as AWS_SSO_OIDC...")
+        print(f"Comparing auth_type: Expected AWS_SSO_OIDC, Got {manager.auth_type}")
+        assert manager.auth_type == AuthType.AWS_SSO_OIDC
+    
+    def test_load_credentials_from_sqlite_handles_missing_registration_key(self, temp_sqlite_db_token_only):
+        """
+        What it does: Verifies handling of missing device-registration key.
+        Purpose: Ensure application doesn't crash without device-registration.
+        """
+        print(f"Setup: Creating KiroAuthManager with SQLite without device-registration...")
+        manager = KiroAuthManager(sqlite_db=temp_sqlite_db_token_only)
+        
+        print("Verification: refresh_token loaded...")
+        assert manager._refresh_token == "partial_refresh_token"
+        
+        print("Verification: client_id stayed None...")
+        assert manager._client_id is None
+        
+        print("Verification: auth_type = KIRO_DESKTOP (no client credentials)...")
+        assert manager.auth_type == AuthType.KIRO_DESKTOP
+    
+    def test_load_credentials_from_sqlite_handles_invalid_json(self, temp_sqlite_db_invalid_json):
+        """
+        What it does: Verifies handling of invalid JSON in SQLite.
+        Purpose: Ensure application doesn't crash on invalid JSON.
+        """
+        print("Setup: Creating KiroAuthManager with SQLite with invalid JSON...")
+        manager = KiroAuthManager(
+            refresh_token="fallback_token",
+            sqlite_db=temp_sqlite_db_invalid_json
+        )
+        
+        print("Verification: Fallback refresh_token is used...")
+        print(f"Comparing refresh_token: Expected 'fallback_token', Got '{manager._refresh_token}'")
+        assert manager._refresh_token == "fallback_token"
+    
+    def test_sqlite_takes_priority_over_json_file(self, temp_sqlite_db, temp_creds_file):
+        """
+        What it does: Verifies SQLite priority over JSON file.
+        Purpose: Ensure SQLite is loaded instead of JSON when both specified.
+        """
+        print("Setup: Creating KiroAuthManager with SQLite and JSON file...")
+        manager = KiroAuthManager(
+            sqlite_db=temp_sqlite_db,
+            creds_file=temp_creds_file
+        )
+        
+        print("Verification: Data from SQLite (not from JSON)...")
+        print(f"Comparing access_token: Expected 'sqlite_access_token', Got '{manager._access_token}'")
+        assert manager._access_token == "sqlite_access_token"
+        
+        print("Verification: region from SQLite...")
+        print(f"Comparing region: Expected 'eu-west-1', Got '{manager._region}'")
+        assert manager._region == "eu-west-1"
+
+
+# =============================================================================
+# Tests for _refresh_token_request() routing
+# =============================================================================
+
+class TestKiroAuthManagerRefreshTokenRouting:
+    """Tests for _refresh_token_request() routing based on auth_type."""
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_request_routes_to_kiro_desktop(self):
+        """
+        What it does: Verifies that KIRO_DESKTOP calls _refresh_token_kiro_desktop.
+        Purpose: Ensure correct routing for Kiro Desktop auth.
+        """
+        print("Setup: Creating KiroAuthManager with KIRO_DESKTOP...")
+        manager = KiroAuthManager(refresh_token="test_refresh")
+        assert manager.auth_type == AuthType.KIRO_DESKTOP
+        
+        print("Setup: Mocking _refresh_token_kiro_desktop...")
+        with patch.object(manager, '_refresh_token_kiro_desktop', new_callable=AsyncMock) as mock_desktop:
+            with patch.object(manager, '_refresh_token_aws_sso_oidc', new_callable=AsyncMock) as mock_sso:
+                await manager._refresh_token_request()
+                
+                print("Verification: _refresh_token_kiro_desktop was called...")
+                mock_desktop.assert_called_once()
+                
+                print("Verification: _refresh_token_aws_sso_oidc was NOT called...")
+                mock_sso.assert_not_called()
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_request_routes_to_aws_sso_oidc(self):
+        """
+        What it does: Verifies that AWS_SSO_OIDC calls _refresh_token_aws_sso_oidc.
+        Purpose: Ensure correct routing for AWS SSO OIDC auth.
+        """
+        print("Setup: Creating KiroAuthManager with AWS_SSO_OIDC...")
+        manager = KiroAuthManager(
+            refresh_token="test_refresh",
+            client_id="test_client_id",
+            client_secret="test_client_secret"
+        )
+        assert manager.auth_type == AuthType.AWS_SSO_OIDC
+        
+        print("Setup: Mocking _refresh_token_aws_sso_oidc...")
+        with patch.object(manager, '_refresh_token_kiro_desktop', new_callable=AsyncMock) as mock_desktop:
+            with patch.object(manager, '_refresh_token_aws_sso_oidc', new_callable=AsyncMock) as mock_sso:
+                await manager._refresh_token_request()
+                
+                print("Verification: _refresh_token_aws_sso_oidc was called...")
+                mock_sso.assert_called_once()
+                
+                print("Verification: _refresh_token_kiro_desktop was NOT called...")
+                mock_desktop.assert_not_called()
+
+
+# =============================================================================
+# Tests for _refresh_token_aws_sso_oidc()
+# =============================================================================
+
+class TestKiroAuthManagerAwsSsoOidcRefresh:
+    """Tests for _refresh_token_aws_sso_oidc() method."""
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_aws_sso_oidc_success(self, mock_aws_sso_oidc_token_response):
+        """
+        What it does: Tests successful token refresh via AWS SSO OIDC.
+        Purpose: Verify that on successful response token and expiration time are set.
+        """
+        print("Setup: Creating KiroAuthManager with AWS SSO OIDC...")
+        manager = KiroAuthManager(
+            refresh_token="test_refresh",
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            region="us-east-1"
+        )
+        
+        print("Setup: Mocking successful response from AWS SSO OIDC...")
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value=mock_aws_sso_oidc_token_response())
+        mock_response.raise_for_status = Mock()
+        
+        with patch('kiro_gateway.auth.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+            
+            print("Action: Calling _refresh_token_aws_sso_oidc()...")
+            await manager._refresh_token_aws_sso_oidc()
+            
+            print("Verification: Token set correctly...")
+            print(f"Comparing access_token: Expected 'new_aws_sso_access_token', Got '{manager._access_token}'")
+            assert manager._access_token == "new_aws_sso_access_token"
+            
+            print("Verification: Expiration time set...")
+            assert manager._expires_at is not None
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_aws_sso_oidc_raises_without_refresh_token(self):
+        """
+        What it does: Verifies handling of missing refresh_token.
+        Purpose: Ensure ValueError is raised without refresh_token.
+        """
+        print("Setup: Creating KiroAuthManager without refresh_token...")
+        manager = KiroAuthManager(
+            client_id="test_client_id",
+            client_secret="test_client_secret"
+        )
+        manager._refresh_token = None
+        
+        print("Action: Attempting token refresh without refresh_token...")
+        with pytest.raises(ValueError) as exc_info:
+            await manager._refresh_token_aws_sso_oidc()
+        
+        print(f"Verification: ValueError raised: {exc_info.value}")
+        assert "Refresh token" in str(exc_info.value)
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_aws_sso_oidc_raises_without_client_id(self):
+        """
+        What it does: Verifies handling of missing client_id.
+        Purpose: Ensure ValueError is raised without client_id.
+        """
+        print("Setup: Creating KiroAuthManager without client_id...")
+        manager = KiroAuthManager(
+            refresh_token="test_refresh",
+            client_secret="test_client_secret"
+        )
+        manager._client_id = None
+        manager._auth_type = AuthType.AWS_SSO_OIDC
+        
+        print("Action: Attempting token refresh without client_id...")
+        with pytest.raises(ValueError) as exc_info:
+            await manager._refresh_token_aws_sso_oidc()
+        
+        print(f"Verification: ValueError raised: {exc_info.value}")
+        assert "Client ID" in str(exc_info.value)
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_aws_sso_oidc_raises_without_client_secret(self):
+        """
+        What it does: Verifies handling of missing client_secret.
+        Purpose: Ensure ValueError is raised without client_secret.
+        """
+        print("Setup: Creating KiroAuthManager without client_secret...")
+        manager = KiroAuthManager(
+            refresh_token="test_refresh",
+            client_id="test_client_id"
+        )
+        manager._client_secret = None
+        manager._auth_type = AuthType.AWS_SSO_OIDC
+        
+        print("Action: Attempting token refresh without client_secret...")
+        with pytest.raises(ValueError) as exc_info:
+            await manager._refresh_token_aws_sso_oidc()
+        
+        print(f"Verification: ValueError raised: {exc_info.value}")
+        assert "Client secret" in str(exc_info.value)
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_aws_sso_oidc_uses_correct_endpoint(self, mock_aws_sso_oidc_token_response):
+        """
+        What it does: Verifies correct endpoint usage.
+        Purpose: Ensure request goes to https://oidc.{region}.amazonaws.com/token.
+        """
+        print("Setup: Creating KiroAuthManager with region=eu-west-1...")
+        manager = KiroAuthManager(
+            refresh_token="test_refresh",
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            region="eu-west-1"
+        )
+        
+        print("Setup: Mocking HTTP client...")
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value=mock_aws_sso_oidc_token_response())
+        mock_response.raise_for_status = Mock()
+        
+        with patch('kiro_gateway.auth.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+            
+            await manager._refresh_token_aws_sso_oidc()
+            
+            print("Verification: POST request to correct URL...")
+            call_args = mock_client.post.call_args
+            url = call_args[0][0]
+            expected_url = "https://oidc.eu-west-1.amazonaws.com/token"
+            print(f"Comparing URL: Expected '{expected_url}', Got '{url}'")
+            assert url == expected_url
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_aws_sso_oidc_uses_form_urlencoded(self, mock_aws_sso_oidc_token_response):
+        """
+        What it does: Verifies form-urlencoded format usage.
+        Purpose: Ensure Content-Type = application/x-www-form-urlencoded.
+        """
+        print("Setup: Creating KiroAuthManager...")
+        manager = KiroAuthManager(
+            refresh_token="test_refresh",
+            client_id="test_client_id",
+            client_secret="test_client_secret"
+        )
+        
+        print("Setup: Mocking HTTP client...")
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value=mock_aws_sso_oidc_token_response())
+        mock_response.raise_for_status = Mock()
+        
+        with patch('kiro_gateway.auth.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+            
+            await manager._refresh_token_aws_sso_oidc()
+            
+            print("Verification: Content-Type = application/x-www-form-urlencoded...")
+            call_args = mock_client.post.call_args
+            headers = call_args[1].get('headers', {})
+            print(f"Comparing Content-Type: Expected 'application/x-www-form-urlencoded', Got '{headers.get('Content-Type')}'")
+            assert headers.get('Content-Type') == 'application/x-www-form-urlencoded'
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_aws_sso_oidc_sends_correct_grant_type(self, mock_aws_sso_oidc_token_response):
+        """
+        What it does: Verifies correct grant_type is sent.
+        Purpose: Ensure grant_type=refresh_token.
+        """
+        print("Setup: Creating KiroAuthManager...")
+        manager = KiroAuthManager(
+            refresh_token="test_refresh",
+            client_id="test_client_id",
+            client_secret="test_client_secret"
+        )
+        
+        print("Setup: Mocking HTTP client...")
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value=mock_aws_sso_oidc_token_response())
+        mock_response.raise_for_status = Mock()
+        
+        with patch('kiro_gateway.auth.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+            
+            await manager._refresh_token_aws_sso_oidc()
+            
+            print("Verification: grant_type = refresh_token...")
+            call_args = mock_client.post.call_args
+            data = call_args[1].get('data', {})
+            print(f"Comparing grant_type: Expected 'refresh_token', Got '{data.get('grant_type')}'")
+            assert data.get('grant_type') == 'refresh_token'
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_aws_sso_oidc_updates_tokens(self, mock_aws_sso_oidc_token_response):
+        """
+        What it does: Verifies access_token and refresh_token update.
+        Purpose: Ensure both tokens are updated from response.
+        """
+        print("Setup: Creating KiroAuthManager...")
+        manager = KiroAuthManager(
+            refresh_token="old_refresh_token",
+            client_id="test_client_id",
+            client_secret="test_client_secret"
+        )
+        
+        print("Setup: Mocking HTTP client...")
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value=mock_aws_sso_oidc_token_response())
+        mock_response.raise_for_status = Mock()
+        
+        with patch('kiro_gateway.auth.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+            
+            await manager._refresh_token_aws_sso_oidc()
+            
+            print("Verification: access_token updated...")
+            assert manager._access_token == "new_aws_sso_access_token"
+            
+            print("Verification: refresh_token updated...")
+            assert manager._refresh_token == "new_aws_sso_refresh_token"
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_aws_sso_oidc_calculates_expiration(self, mock_aws_sso_oidc_token_response):
+        """
+        What it does: Verifies correct expiration time calculation.
+        Purpose: Ensure expires_at is calculated based on expiresIn.
+        """
+        print("Setup: Creating KiroAuthManager...")
+        manager = KiroAuthManager(
+            refresh_token="test_refresh",
+            client_id="test_client_id",
+            client_secret="test_client_secret"
+        )
+        
+        print("Setup: Mocking HTTP client with expiresIn=7200...")
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value=mock_aws_sso_oidc_token_response(expires_in=7200))
+        mock_response.raise_for_status = Mock()
+        
+        with patch('kiro_gateway.auth.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+            
+            await manager._refresh_token_aws_sso_oidc()
+            
+            print("Verification: expires_at set...")
+            assert manager._expires_at is not None
+            
+            print("Verification: expires_at in the future...")
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            assert manager._expires_at > now
+
+
+# =============================================================================
+# Tests for auth_type property and constructor with new parameters
+# =============================================================================
+
+class TestKiroAuthManagerAuthTypeProperty:
+    """Tests for auth_type property and constructor."""
+    
+    def test_auth_type_property_returns_correct_value(self):
+        """
+        What it does: Verifies that auth_type property returns correct value.
+        Purpose: Ensure property works correctly.
+        """
+        print("Setup: Creating KiroAuthManager with KIRO_DESKTOP...")
+        manager_desktop = KiroAuthManager(refresh_token="test")
+        
+        print("Verification: auth_type = KIRO_DESKTOP...")
+        assert manager_desktop.auth_type == AuthType.KIRO_DESKTOP
+        
+        print("Setup: Creating KiroAuthManager with AWS_SSO_OIDC...")
+        manager_sso = KiroAuthManager(
+            refresh_token="test",
+            client_id="id",
+            client_secret="secret"
+        )
+        
+        print("Verification: auth_type = AWS_SSO_OIDC...")
+        assert manager_sso.auth_type == AuthType.AWS_SSO_OIDC
+    
+    def test_init_with_client_id_and_secret(self):
+        """
+        What it does: Verifies initialization with client_id and client_secret.
+        Purpose: Ensure parameters are stored in private fields.
+        """
+        print("Setup: Creating KiroAuthManager with client credentials...")
+        manager = KiroAuthManager(
+            refresh_token="test",
+            client_id="my_client_id",
+            client_secret="my_client_secret"
+        )
+        
+        print("Verification: client_id stored...")
+        assert manager._client_id == "my_client_id"
+        
+        print("Verification: client_secret stored...")
+        assert manager._client_secret == "my_client_secret"
+    
+    def test_init_with_sqlite_db_parameter(self, temp_sqlite_db):
+        """
+        What it does: Verifies initialization with sqlite_db parameter.
+        Purpose: Ensure data is loaded from SQLite.
+        """
+        print(f"Setup: Creating KiroAuthManager with sqlite_db: {temp_sqlite_db}")
+        manager = KiroAuthManager(sqlite_db=temp_sqlite_db)
+        
+        print("Verification: Data loaded from SQLite...")
+        assert manager._access_token == "sqlite_access_token"
+        assert manager._refresh_token == "sqlite_refresh_token"
+    
+    def test_detect_auth_type_kiro_desktop_when_only_client_secret(self):
+        """
+        What it does: Verifies type detection with only clientSecret (no id).
+        Purpose: Ensure KIRO_DESKTOP is used without clientId.
+        """
+        print("Setup: Creating KiroAuthManager with only client_secret...")
+        manager = KiroAuthManager(
+            refresh_token="test_token",
+            client_secret="test_client_secret"
+        )
+        
+        print("Verification: auth_type = KIRO_DESKTOP (both id and secret required)...")
+        print(f"Comparing auth_type: Expected KIRO_DESKTOP, Got {manager.auth_type}")
+        assert manager.auth_type == AuthType.KIRO_DESKTOP

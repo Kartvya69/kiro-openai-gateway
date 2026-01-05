@@ -79,6 +79,7 @@ tests/
 │   ├── test_debug_logger.py        # DebugLogger tests (off/errors/all modes)
 │   ├── test_parsers.py             # AwsEventStreamParser tests
 │   ├── test_streaming.py           # Streaming function tests
+│   ├── test_thinking_parser.py     # ThinkingParser tests (FSM for thinking blocks)
 │   ├── test_tokenizer.py           # Tokenizer tests (tiktoken)
 │   ├── test_http_client.py         # KiroHttpClient tests
 │   └── test_routes.py              # API endpoint tests
@@ -107,9 +108,29 @@ Shared fixtures and utilities for all tests:
   - **What it does**: Generates Kiro auth endpoint response structure
   - **Purpose**: Testing various token refresh scenarios
 
-- **`temp_creds_file()`**: Creates a temporary JSON file with credentials
+- **`temp_creds_file()`**: Creates a temporary JSON file with credentials (Kiro Desktop format)
   - **What it does**: Provides a file for testing credentials loading
   - **Purpose**: Testing credentials file operations
+
+- **`temp_aws_sso_creds_file()`**: Creates a temporary JSON file with AWS SSO OIDC credentials
+  - **What it does**: Provides a file with clientId and clientSecret for testing AWS SSO auth
+  - **Purpose**: Testing AWS SSO OIDC credentials loading
+
+- **`temp_sqlite_db()`**: Creates a temporary SQLite database (kiro-cli format)
+  - **What it does**: Provides a database with auth_kv table for testing SQLite loading
+  - **Purpose**: Testing kiro-cli SQLite credentials loading
+
+- **`temp_sqlite_db_token_only()`**: Creates SQLite database with token only (no device-registration)
+  - **What it does**: Provides a partial database for testing error handling
+  - **Purpose**: Testing partial SQLite data loading
+
+- **`temp_sqlite_db_invalid_json()`**: Creates SQLite database with invalid JSON
+  - **What it does**: Provides a database with corrupted data for testing error handling
+  - **Purpose**: Testing JSON decode error handling
+
+- **`mock_aws_sso_oidc_token_response()`**: Factory for creating mock AWS SSO OIDC token responses
+  - **What it does**: Generates AWS SSO OIDC token endpoint response structure
+  - **Purpose**: Testing various AWS SSO OIDC token refresh scenarios
 
 - **`sample_openai_chat_request()`**: Factory for creating OpenAI requests
   - **What it does**: Generates valid chat completion requests
@@ -240,6 +261,154 @@ Unit tests for **KiroAuthManager** (Kiro token management).
 - **`test_fingerprint_property()`**:
   - **What it does**: Verifies fingerprint property
   - **Purpose**: Ensure fingerprint is accessible via property
+
+#### `TestAuthTypeEnum`
+
+Tests for AuthType enum (AWS SSO OIDC support).
+
+- **`test_auth_type_enum_values()`**:
+  - **What it does**: Verifies AuthType enum contains KIRO_DESKTOP and AWS_SSO_OIDC
+  - **Purpose**: Ensure enum values are correctly defined
+
+#### `TestKiroAuthManagerDetectAuthType`
+
+Tests for `_detect_auth_type()` method.
+
+- **`test_detect_auth_type_kiro_desktop_when_no_client_credentials()`**:
+  - **What it does**: Verifies KIRO_DESKTOP is detected without clientId/clientSecret
+  - **Purpose**: Ensure default auth type is KIRO_DESKTOP
+
+- **`test_detect_auth_type_aws_sso_oidc_when_client_credentials_present()`**:
+  - **What it does**: Verifies AWS_SSO_OIDC is detected with clientId and clientSecret
+  - **Purpose**: Ensure AWS SSO OIDC is auto-detected from credentials
+
+- **`test_detect_auth_type_kiro_desktop_when_only_client_id()`**:
+  - **What it does**: Verifies KIRO_DESKTOP when only clientId is present
+  - **Purpose**: Ensure both clientId AND clientSecret are required for AWS SSO OIDC
+
+- **`test_detect_auth_type_kiro_desktop_when_only_client_secret()`**:
+  - **What it does**: Verifies KIRO_DESKTOP when only clientSecret is present
+  - **Purpose**: Ensure both clientId AND clientSecret are required for AWS SSO OIDC
+
+#### `TestKiroAuthManagerAwsSsoCredentialsFile`
+
+Tests for loading AWS SSO OIDC credentials from JSON file.
+
+- **`test_load_credentials_from_file_with_client_id_and_secret()`**:
+  - **What it does**: Verifies clientId and clientSecret are loaded from JSON file
+  - **Purpose**: Ensure AWS SSO fields are correctly read from file
+
+- **`test_load_credentials_from_file_auto_detects_aws_sso_oidc()`**:
+  - **What it does**: Verifies auth_type is auto-detected as AWS_SSO_OIDC after loading
+  - **Purpose**: Ensure auth type is automatically determined from file contents
+
+- **`test_load_kiro_desktop_file_stays_kiro_desktop()`**:
+  - **What it does**: Verifies Kiro Desktop file doesn't change auth type to AWS SSO
+  - **Purpose**: Ensure file without clientId/clientSecret stays KIRO_DESKTOP
+
+#### `TestKiroAuthManagerSqliteCredentials`
+
+Tests for loading credentials from SQLite database (kiro-cli format).
+
+- **`test_load_credentials_from_sqlite_success()`**:
+  - **What it does**: Verifies successful credentials loading from SQLite
+  - **Purpose**: Ensure all data is correctly read from database
+
+- **`test_load_credentials_from_sqlite_file_not_found()`**:
+  - **What it does**: Verifies handling of missing SQLite file
+  - **Purpose**: Ensure application doesn't crash when file is missing
+
+- **`test_load_credentials_from_sqlite_loads_token_data()`**:
+  - **What it does**: Verifies token data loading from SQLite
+  - **Purpose**: Ensure access_token, refresh_token, region are loaded
+
+- **`test_load_credentials_from_sqlite_loads_device_registration()`**:
+  - **What it does**: Verifies device registration loading from SQLite
+  - **Purpose**: Ensure client_id and client_secret are loaded
+
+- **`test_load_credentials_from_sqlite_auto_detects_aws_sso_oidc()`**:
+  - **What it does**: Verifies auth_type is auto-detected as AWS_SSO_OIDC after loading
+  - **Purpose**: Ensure auth type is automatically determined from SQLite contents
+
+- **`test_load_credentials_from_sqlite_handles_missing_registration_key()`**:
+  - **What it does**: Verifies handling of missing device-registration key
+  - **Purpose**: Ensure application doesn't crash without device-registration
+
+- **`test_load_credentials_from_sqlite_handles_invalid_json()`**:
+  - **What it does**: Verifies handling of invalid JSON in SQLite
+  - **Purpose**: Ensure application doesn't crash with invalid JSON
+
+- **`test_sqlite_takes_priority_over_json_file()`**:
+  - **What it does**: Verifies SQLite takes priority over JSON file
+  - **Purpose**: Ensure SQLite is loaded instead of JSON when both are specified
+
+#### `TestKiroAuthManagerRefreshTokenRouting`
+
+Tests for `_refresh_token_request()` routing based on auth_type.
+
+- **`test_refresh_token_request_routes_to_kiro_desktop()`**:
+  - **What it does**: Verifies KIRO_DESKTOP calls _refresh_token_kiro_desktop
+  - **Purpose**: Ensure correct routing for Kiro Desktop auth
+
+- **`test_refresh_token_request_routes_to_aws_sso_oidc()`**:
+  - **What it does**: Verifies AWS_SSO_OIDC calls _refresh_token_aws_sso_oidc
+  - **Purpose**: Ensure correct routing for AWS SSO OIDC auth
+
+#### `TestKiroAuthManagerAwsSsoOidcRefresh`
+
+Tests for `_refresh_token_aws_sso_oidc()` method.
+
+- **`test_refresh_token_aws_sso_oidc_success()`**:
+  - **What it does**: Tests successful token refresh via AWS SSO OIDC
+  - **Purpose**: Verify access_token and expires_at are set on success
+
+- **`test_refresh_token_aws_sso_oidc_raises_without_refresh_token()`**:
+  - **What it does**: Verifies ValueError is raised without refresh_token
+  - **Purpose**: Ensure exception is thrown without refresh_token
+
+- **`test_refresh_token_aws_sso_oidc_raises_without_client_id()`**:
+  - **What it does**: Verifies ValueError is raised without client_id
+  - **Purpose**: Ensure exception is thrown without client_id
+
+- **`test_refresh_token_aws_sso_oidc_raises_without_client_secret()`**:
+  - **What it does**: Verifies ValueError is raised without client_secret
+  - **Purpose**: Ensure exception is thrown without client_secret
+
+- **`test_refresh_token_aws_sso_oidc_uses_correct_endpoint()`**:
+  - **What it does**: Verifies correct endpoint is used
+  - **Purpose**: Ensure request goes to https://oidc.{region}.amazonaws.com/token
+
+- **`test_refresh_token_aws_sso_oidc_uses_form_urlencoded()`**:
+  - **What it does**: Verifies form-urlencoded format is used
+  - **Purpose**: Ensure Content-Type = application/x-www-form-urlencoded
+
+- **`test_refresh_token_aws_sso_oidc_sends_correct_grant_type()`**:
+  - **What it does**: Verifies correct grant_type is sent
+  - **Purpose**: Ensure grant_type=refresh_token
+
+- **`test_refresh_token_aws_sso_oidc_updates_tokens()`**:
+  - **What it does**: Verifies access_token and refresh_token are updated
+  - **Purpose**: Ensure both tokens are updated from response
+
+- **`test_refresh_token_aws_sso_oidc_calculates_expiration()`**:
+  - **What it does**: Verifies expiration time is calculated correctly
+  - **Purpose**: Ensure expires_at is calculated based on expiresIn
+
+#### `TestKiroAuthManagerAuthTypeProperty`
+
+Tests for auth_type property and constructor with new parameters.
+
+- **`test_auth_type_property_returns_correct_value()`**:
+  - **What it does**: Verifies auth_type property returns correct value
+  - **Purpose**: Ensure property works correctly
+
+- **`test_init_with_client_id_and_secret()`**:
+  - **What it does**: Verifies initialization with client_id and client_secret
+  - **Purpose**: Ensure parameters are stored in private fields
+
+- **`test_init_with_sqlite_db_parameter()`**:
+  - **What it does**: Verifies initialization with sqlite_db parameter
+  - **Purpose**: Ensure data is loaded from SQLite
 
 ---
 
@@ -404,6 +573,34 @@ Tests for `_warn_timeout_configuration()` function.
   - **What it does**: Verifies warning contains recommendation text
   - **Purpose**: Ensure user gets helpful information about correct configuration
 
+#### `TestAwsSsoOidcUrlConfig`
+
+Tests for AWS SSO OIDC URL configuration.
+
+- **`test_aws_sso_oidc_url_template_exists()`**:
+  - **What it does**: Verifies AWS_SSO_OIDC_URL_TEMPLATE constant exists
+  - **Purpose**: Ensure the template is defined in config
+
+- **`test_get_aws_sso_oidc_url_returns_correct_url()`**:
+  - **What it does**: Verifies get_aws_sso_oidc_url returns correct URL
+  - **Purpose**: Ensure the function formats URL correctly
+
+- **`test_get_aws_sso_oidc_url_with_different_regions()`**:
+  - **What it does**: Verifies URL generation for different regions
+  - **Purpose**: Ensure the function works with various AWS regions
+
+#### `TestKiroCliDbFileConfig`
+
+Tests for KIRO_CLI_DB_FILE configuration.
+
+- **`test_kiro_cli_db_file_config_exists()`**:
+  - **What it does**: Verifies KIRO_CLI_DB_FILE constant exists
+  - **Purpose**: Ensure the config parameter is defined
+
+- **`test_kiro_cli_db_file_from_environment()`**:
+  - **What it does**: Verifies loading KIRO_CLI_DB_FILE from environment variable
+  - **Purpose**: Ensure the value from environment is used
+
 ---
 
 ### `tests/unit/test_debug_logger.py`
@@ -536,7 +733,7 @@ Tests for application log capture (app_logs.txt).
 
 ### `tests/unit/test_converters.py`
 
-Unit tests for **OpenAI <-> Kiro** converters. **68 tests.**
+Unit tests for **OpenAI <-> Kiro** converters. **84 tests.**
 
 #### `TestExtractTextContent`
 
@@ -749,6 +946,74 @@ Tests for `_sanitize_json_schema` function that cleans JSON Schema from fields n
   - **What it does**: Verifies handling of mixed tools list
   - **Purpose**: Ensure empty descriptions are replaced while normal ones are preserved (real scenario from Cline)
 
+#### `TestInjectThinkingTags`
+
+Tests for inject_thinking_tags function with thinking instruction.
+
+- **`test_returns_original_content_when_disabled()`**:
+  - **What it does**: Verifies that content is returned unchanged when fake reasoning is disabled
+  - **Purpose**: Ensure no modification occurs when FAKE_REASONING_ENABLED=False
+
+- **`test_injects_tags_when_enabled()`**:
+  - **What it does**: Verifies that thinking tags are injected when enabled
+  - **Purpose**: Ensure tags are prepended to content when FAKE_REASONING_ENABLED=True
+
+- **`test_injects_thinking_instruction_tag()`**:
+  - **What it does**: Verifies that thinking_instruction tag is injected
+  - **Purpose**: Ensure the quality improvement prompt is included
+
+- **`test_thinking_instruction_contains_english_directive()`**:
+  - **What it does**: Verifies that thinking instruction includes English language directive
+  - **Purpose**: Ensure model is instructed to think in English for better reasoning quality
+
+- **`test_thinking_instruction_contains_systematic_approach()`**:
+  - **What it does**: Verifies that thinking instruction includes systematic approach guidance
+  - **Purpose**: Ensure model is instructed to think systematically
+
+- **`test_thinking_instruction_contains_understanding_step()`**:
+  - **What it does**: Verifies that thinking instruction includes understanding step
+  - **Purpose**: Ensure model is instructed to understand the problem first
+
+- **`test_thinking_instruction_contains_alternatives_consideration()`**:
+  - **What it does**: Verifies that thinking instruction includes alternatives consideration
+  - **Purpose**: Ensure model is instructed to consider multiple approaches
+
+- **`test_thinking_instruction_contains_edge_cases()`**:
+  - **What it does**: Verifies that thinking instruction includes edge cases consideration
+  - **Purpose**: Ensure model is instructed to think about edge cases and potential issues
+
+- **`test_thinking_instruction_contains_verification_step()`**:
+  - **What it does**: Verifies that thinking instruction includes verification step
+  - **Purpose**: Ensure model is instructed to verify reasoning before concluding
+
+- **`test_thinking_instruction_contains_assumptions_challenge()`**:
+  - **What it does**: Verifies that thinking instruction includes assumptions challenge
+  - **Purpose**: Ensure model is instructed to challenge initial assumptions
+
+- **`test_thinking_instruction_contains_quality_over_speed()`**:
+  - **What it does**: Verifies that thinking instruction emphasizes quality over speed
+  - **Purpose**: Ensure model is instructed to prioritize quality of thought
+
+- **`test_uses_configured_max_tokens()`**:
+  - **What it does**: Verifies that FAKE_REASONING_MAX_TOKENS config value is used
+  - **Purpose**: Ensure the configured max tokens value is injected into the tag
+
+- **`test_preserves_empty_content()`**:
+  - **What it does**: Verifies that empty content is handled correctly
+  - **Purpose**: Ensure empty string doesn't cause issues
+
+- **`test_preserves_multiline_content()`**:
+  - **What it does**: Verifies that multiline content is preserved correctly
+  - **Purpose**: Ensure newlines in original content are not corrupted
+
+- **`test_preserves_special_characters()`**:
+  - **What it does**: Verifies that special characters in content are preserved
+  - **Purpose**: Ensure XML-like content in user message doesn't break injection
+
+- **`test_tag_order_is_correct()`**:
+  - **What it does**: Verifies that tags are in the correct order
+  - **Purpose**: Ensure thinking_mode comes first, then max_thinking_length, then instruction, then content
+
 #### `TestBuildKiroPayload`
 
 - **`test_builds_simple_payload()`**: Verifies simple payload building
@@ -882,6 +1147,121 @@ Unit tests for **AwsEventStreamParser** and helper parsing functions. **52 tests
 - **`test_handles_mixed_events()`**: Verifies mixed events parsing
 - **`test_handles_garbage_between_events()`**: Verifies garbage handling between events
 - **`test_handles_empty_chunk()`**: Verifies empty chunk handling
+
+---
+
+### `tests/unit/test_thinking_parser.py`
+
+Unit tests for **ThinkingParser** (FSM-based parser for thinking blocks in streaming responses). **63 tests.**
+
+#### `TestParserStateEnum`
+
+- **`test_pre_content_value()`**: Verifies PRE_CONTENT enum value is 0
+- **`test_in_thinking_value()`**: Verifies IN_THINKING enum value is 1
+- **`test_streaming_value()`**: Verifies STREAMING enum value is 2
+
+#### `TestThinkingParseResult`
+
+- **`test_default_values()`**: Verifies default values of ThinkingParseResult dataclass
+- **`test_custom_values()`**: Verifies custom values can be set in ThinkingParseResult
+
+#### `TestThinkingParserInitialization`
+
+- **`test_default_initialization()`**: Verifies parser starts in PRE_CONTENT state with empty buffers
+- **`test_custom_handling_mode()`**: Verifies handling_mode can be overridden
+- **`test_custom_open_tags()`**: Verifies open_tags can be overridden
+- **`test_custom_initial_buffer_size()`**: Verifies initial_buffer_size can be overridden
+- **`test_max_tag_length_calculated()`**: Verifies max_tag_length is calculated from open_tags
+
+#### `TestThinkingParserFeedPreContent`
+
+- **`test_empty_content_returns_empty_result()`**: Verifies empty content doesn't change state
+- **`test_detects_thinking_tag()`**: Verifies `<thinking>` tag detection and state transition
+- **`test_detects_think_tag()`**: Verifies `<think>` tag detection
+- **`test_detects_reasoning_tag()`**: Verifies `<reasoning>` tag detection
+- **`test_detects_thought_tag()`**: Verifies `<thought>` tag detection
+- **`test_strips_leading_whitespace_for_tag_detection()`**: Verifies leading whitespace is stripped
+- **`test_buffers_partial_tag()`**: Verifies partial tag is buffered
+- **`test_completes_partial_tag()`**: Verifies partial tag is completed across chunks
+- **`test_no_tag_transitions_to_streaming()`**: Verifies transition to STREAMING when no tag found
+- **`test_buffer_exceeds_limit_transitions_to_streaming()`**: Verifies transition when buffer exceeds limit
+
+#### `TestThinkingParserFeedInThinking`
+
+- **`test_accumulates_thinking_content()`**: Verifies thinking content is accumulated
+- **`test_detects_closing_tag()`**: Verifies closing tag detection and state transition
+- **`test_regular_content_after_closing_tag()`**: Verifies content after closing tag is regular_content
+- **`test_strips_whitespace_after_closing_tag()`**: Verifies whitespace is stripped after closing tag
+- **`test_cautious_buffering()`**: Verifies cautious buffering keeps last max_tag_length chars
+- **`test_split_closing_tag()`**: Verifies split closing tag is handled
+
+#### `TestThinkingParserFeedStreaming`
+
+- **`test_passes_content_through()`**: Verifies content is passed through in STREAMING state
+- **`test_ignores_thinking_tags_in_streaming()`**: Verifies thinking tags are ignored in STREAMING state
+
+#### `TestThinkingParserFinalize`
+
+- **`test_flushes_thinking_buffer()`**: Verifies thinking buffer is flushed on finalize
+- **`test_flushes_initial_buffer()`**: Verifies initial buffer is flushed on finalize
+- **`test_clears_buffers_after_finalize()`**: Verifies buffers are cleared after finalize
+
+#### `TestThinkingParserReset`
+
+- **`test_resets_to_initial_state()`**: Verifies reset returns parser to initial state
+
+#### `TestThinkingParserFoundThinkingBlock`
+
+- **`test_false_initially()`**: Verifies found_thinking_block is False initially
+- **`test_true_after_tag_detection()`**: Verifies found_thinking_block is True after tag detection
+- **`test_false_when_no_tag()`**: Verifies found_thinking_block is False when no tag found
+
+#### `TestThinkingParserProcessForOutput`
+
+- **`test_as_reasoning_content_mode()`**: Verifies as_reasoning_content mode returns content as-is
+- **`test_remove_mode()`**: Verifies remove mode returns None
+- **`test_pass_mode_first_chunk()`**: Verifies pass mode adds opening tag to first chunk
+- **`test_pass_mode_last_chunk()`**: Verifies pass mode adds closing tag to last chunk
+- **`test_pass_mode_first_and_last_chunk()`**: Verifies pass mode adds both tags when first and last
+- **`test_pass_mode_middle_chunk()`**: Verifies pass mode returns content as-is for middle chunk
+- **`test_strip_tags_mode()`**: Verifies strip_tags mode returns content without tags
+- **`test_none_content_returns_none()`**: Verifies None content returns None
+- **`test_empty_content_returns_none()`**: Verifies empty content returns None
+
+#### `TestThinkingParserFullFlow`
+
+Integration tests for full parsing flow.
+
+- **`test_complete_thinking_block()`**: Verifies complete thinking block parsing
+- **`test_multi_chunk_thinking_block()`**: Verifies thinking block split across multiple chunks
+- **`test_no_thinking_block()`**: Verifies handling of content without thinking block
+- **`test_thinking_block_with_newlines()`**: Verifies thinking block with newlines after closing tag
+- **`test_empty_thinking_block()`**: Verifies empty thinking block handling
+- **`test_thinking_block_only_whitespace_after()`**: Verifies thinking block with only whitespace after
+
+#### `TestThinkingParserEdgeCases`
+
+- **`test_nested_tags_not_supported()`**: Verifies nested tags are not specially handled
+- **`test_tag_in_middle_of_content()`**: Verifies tag in middle of content is not detected
+- **`test_malformed_closing_tag()`**: Verifies malformed closing tag is not detected
+- **`test_unicode_content()`**: Verifies Unicode content is handled correctly
+- **`test_very_long_thinking_content()`**: Verifies very long thinking content is handled
+- **`test_special_characters_in_content()`**: Verifies special characters are handled
+- **`test_multiple_feeds_after_streaming()`**: Verifies multiple feeds in STREAMING state
+
+#### `TestThinkingParserConfigIntegration`
+
+- **`test_uses_config_handling_mode()`**: Verifies parser uses FAKE_REASONING_HANDLING from config
+- **`test_uses_config_open_tags()`**: Verifies parser uses FAKE_REASONING_OPEN_TAGS from config
+- **`test_default_initial_buffer_size_from_config()`**: Verifies parser uses default initial_buffer_size from config
+
+#### `TestInjectThinkingTags`
+
+Tests for inject_thinking_tags function in converters.
+
+- **`test_injects_tags_when_enabled()`**: Verifies tags are injected when FAKE_REASONING_ENABLED is True
+- **`test_no_injection_when_disabled()`**: Verifies tags are not injected when FAKE_REASONING_ENABLED is False
+- **`test_injection_preserves_content()`**: Verifies original content is preserved after injection
 
 ---
 
