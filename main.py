@@ -149,21 +149,28 @@ def validate_configuration() -> None:
     config_example = Path("config.example.yml")
     
     if not config_file.exists():
-        errors.append(
-            "config.yml file not found!\n"
-            "\n"
-            "To get started:\n"
-            "1. Create config.yml or rename from config.example.yml:\n"
-            "   cp config.example.yml config.yml\n"
-            "\n"
-            "2. Edit config.yml and configure your credentials:\n"
-            "   2.1. Set your super-secret password as proxy_api_key\n"
-            "   2.2. Set your Kiro credentials:\n"
-            "      - 1 way: kiro_creds_file to your Kiro credentials JSON file\n"
-            "      - 2 way: refresh_token from Kiro IDE traffic\n"
-            "\n"
-            "See README.md for detailed instructions."
-        )
+        # Auto-create config.yml from config.example.yml if available
+        if config_example.exists():
+            import shutil
+            shutil.copy(config_example, config_file)
+            logger.info(f"Created {config_file} from {config_example}")
+            logger.info("Please edit config.yml to configure your credentials, then restart the server.")
+        else:
+            errors.append(
+                "config.yml file not found!\n"
+                "\n"
+                "To get started:\n"
+                "1. Create config.yml or rename from config.example.yml:\n"
+                "   cp config.example.yml config.yml\n"
+                "\n"
+                "2. Edit config.yml and configure your credentials:\n"
+                "   2.1. Set your super-secret password as proxy_api_key\n"
+                "   2.2. Set your Kiro credentials:\n"
+                "      - 1 way: kiro_creds_file to your Kiro credentials JSON file\n"
+                "      - 2 way: refresh_token from Kiro IDE traffic\n"
+                "\n"
+                "See README.md for detailed instructions."
+            )
     else:
         # config.yml exists, check for credentials
         has_refresh_token = bool(REFRESH_TOKEN)
