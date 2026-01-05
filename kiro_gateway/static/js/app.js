@@ -1618,11 +1618,32 @@ function stopLogPolling() {
 // ============================================
 
 function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(() => {
+    // Modern clipboard API (requires HTTPS)
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            showToast('Copied to clipboard', 'success');
+        }).catch(() => {
+            fallbackCopyToClipboard(text);
+        });
+    } else {
+        fallbackCopyToClipboard(text);
+    }
+}
+
+function fallbackCopyToClipboard(text) {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+        document.execCommand('copy');
         showToast('Copied to clipboard', 'success');
-    }).catch(() => {
+    } catch (err) {
         showToast('Failed to copy', 'error');
-    });
+    }
+    document.body.removeChild(textArea);
 }
 
 // Initial load on dashboard
