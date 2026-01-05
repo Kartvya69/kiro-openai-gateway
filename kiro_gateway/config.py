@@ -79,7 +79,7 @@ _config = _load_yaml_config()
 PROXY_API_KEY: str = _get_config_value(_config, "proxy_api_key", "changeme_proxy_secret")
 
 # Secret key for Web UI login (separate from proxy_api_key)
-SECRET_KEY: str = _get_config_value(_config, "secret_key", "changeme_secret_key")
+SECRET_KEY: str = _get_config_value(_config, "secret_key", "admin123")
 
 # ==================================================================================================
 # Kiro API Credentials
