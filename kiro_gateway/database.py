@@ -28,6 +28,21 @@ class Base(DeclarativeBase):
     pass
 
 
+class APIKeyModel(Base):
+    """
+    API Key model for storing authentication keys in PostgreSQL.
+    """
+    __tablename__ = "api_keys"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_used_at = Column(DateTime(timezone=True))
+    is_active = Column(Boolean, default=True)
+    request_count = Column(Integer, default=0)
+
+
 class KiroAccount(Base):
     """
     Kiro account model for storing authentication credentials.

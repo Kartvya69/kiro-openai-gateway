@@ -3,15 +3,17 @@
 """
 API Keys management for Kiro Gateway.
 
-Provides multi-key authentication system with local JSON storage.
+Provides multi-key authentication system with local JSON storage
+or PostgreSQL when DATABASE_URL is configured.
 """
 
 import json
+import os
 import secrets
 import string
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Protocol
 
 from loguru import logger
 
@@ -96,7 +98,22 @@ class APIKey:
         )
 
 
-class APIKeyManager:
+class APIKeyManagerProtocol(Protocol):
+    """Protocol for API key managers."""
+    def create_key(self, name: str) -> APIKey: ...
+    def delete_key(self, key: str) -> bool: ...
+    def get_key(self, key: str) -> Optional[APIKey]: ...
+    def validate_key(self, key: str) -> bool: ...
+    def list_keys(self, mask: bool = True) -> List[dict]: ...
+    def update_key(self, key: str, name: Optional[str] = None, is_active: Optional[bool] = None) -> bool: ...
+    def get_key_by_prefix(self, prefix: str) -> Optional[APIKey]: ...
+    @property
+    def key_count(self) -> int: ...
+    @property
+    def active_key_count(self) -> int: ...
+
+
+class LocalAPIKeyManager:
     """
     Manages API keys with local JSON storage.
     """
@@ -234,15 +251,243 @@ class APIKeyManager:
         return sum(1 for k in self._keys.values() if k.is_active)
 
 
+class PostgresAPIKeyManager:
+    """
+    Manages API keys with PostgreSQL storage.
+    Uses synchronous database operations for compatibility.
+    """
+    
+    def __init__(self):
+        self._engine = None
+        self._init_db()
+    
+    def _init_db(self) -> None:
+        """Initialize database connection and create table."""
+        from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, MetaData, Table
+        from sqlalchemy.orm import sessionmaker
+        
+        database_url = os.getenv("DATABASE_URL", "")
+        # Convert async URL to sync if needed
+        if database_url.startswith("postgresql+asyncpg://"):
+            database_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
+        elif database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://")
+        
+        self._engine = create_engine(database_url, pool_pre_ping=True)
+        self._Session = sessionmaker(bind=self._engine)
+        
+        # Create table if not exists
+        metadata = MetaData()
+        self._api_keys_table = Table(
+            'api_keys', metadata,
+            Column('id', Integer, primary_key=True, autoincrement=True),
+            Column('key', String(100), unique=True, nullable=False, index=True),
+            Column('name', String(255), nullable=False),
+            Column('created_at', DateTime(timezone=True)),
+            Column('last_used_at', DateTime(timezone=True)),
+            Column('is_active', Boolean, default=True),
+            Column('request_count', Integer, default=0),
+        )
+        metadata.create_all(self._engine)
+        
+        # Check if we need to create default keys
+        self._ensure_default_keys()
+    
+    def _ensure_default_keys(self) -> None:
+        """Create default keys if none exist."""
+        if self.key_count == 0:
+            logger.info("Creating default API keys in PostgreSQL...")
+            key1 = self.create_key("Default Key 1")
+            key2 = self.create_key("Default Key 2")
+            
+            logger.info("=" * 60)
+            logger.info("  AUTO-GENERATED API KEYS (PostgreSQL)")
+            logger.info("=" * 60)
+            logger.info(f"  Key 1: {key1.key}")
+            logger.info(f"  Key 2: {key2.key}")
+            logger.info("=" * 60)
+            logger.info("  Use these keys as 'api_key' when connecting clients")
+            logger.info("  You can manage keys in the WebUI at /ui -> API Keys")
+            logger.info("=" * 60)
+    
+    def create_key(self, name: str) -> APIKey:
+        """Create a new API key."""
+        from sqlalchemy import insert
+        
+        key_str = generate_api_key("sk-")
+        now = datetime.now(timezone.utc)
+        
+        with self._Session() as session:
+            stmt = insert(self._api_keys_table).values(
+                key=key_str,
+                name=name,
+                created_at=now,
+                is_active=True,
+                request_count=0,
+            )
+            session.execute(stmt)
+            session.commit()
+        
+        logger.info(f"Created API key in PostgreSQL: {name}")
+        return APIKey(key=key_str, name=name, created_at=now)
+    
+    def delete_key(self, key: str) -> bool:
+        """Delete an API key."""
+        from sqlalchemy import delete
+        
+        with self._Session() as session:
+            stmt = delete(self._api_keys_table).where(self._api_keys_table.c.key == key)
+            result = session.execute(stmt)
+            session.commit()
+            return result.rowcount > 0
+    
+    def get_key(self, key: str) -> Optional[APIKey]:
+        """Get an API key by its value."""
+        from sqlalchemy import select
+        
+        with self._Session() as session:
+            stmt = select(self._api_keys_table).where(self._api_keys_table.c.key == key)
+            result = session.execute(stmt).fetchone()
+            if result:
+                return APIKey(
+                    key=result.key,
+                    name=result.name,
+                    created_at=result.created_at,
+                    last_used_at=result.last_used_at,
+                    is_active=result.is_active,
+                    request_count=result.request_count,
+                )
+        return None
+    
+    def validate_key(self, key: str) -> bool:
+        """Validate an API key and update usage stats."""
+        from sqlalchemy import select, update
+        
+        with self._Session() as session:
+            stmt = select(self._api_keys_table).where(self._api_keys_table.c.key == key)
+            result = session.execute(stmt).fetchone()
+            
+            if not result or not result.is_active:
+                return False
+            
+            # Update usage stats
+            update_stmt = update(self._api_keys_table).where(
+                self._api_keys_table.c.key == key
+            ).values(
+                last_used_at=datetime.now(timezone.utc),
+                request_count=result.request_count + 1,
+            )
+            session.execute(update_stmt)
+            session.commit()
+            return True
+    
+    def list_keys(self, mask: bool = True) -> List[dict]:
+        """List all API keys."""
+        from sqlalchemy import select
+        
+        with self._Session() as session:
+            stmt = select(self._api_keys_table)
+            results = session.execute(stmt).fetchall()
+            
+            keys = []
+            for row in results:
+                api_key = APIKey(
+                    key=row.key,
+                    name=row.name,
+                    created_at=row.created_at,
+                    last_used_at=row.last_used_at,
+                    is_active=row.is_active,
+                    request_count=row.request_count,
+                )
+                keys.append(api_key.to_dict(mask_key=mask))
+            return keys
+    
+    def update_key(self, key: str, name: Optional[str] = None, is_active: Optional[bool] = None) -> bool:
+        """Update an API key."""
+        from sqlalchemy import update
+        
+        values = {}
+        if name is not None:
+            values['name'] = name
+        if is_active is not None:
+            values['is_active'] = is_active
+        
+        if not values:
+            return True
+        
+        with self._Session() as session:
+            stmt = update(self._api_keys_table).where(
+                self._api_keys_table.c.key == key
+            ).values(**values)
+            result = session.execute(stmt)
+            session.commit()
+            return result.rowcount > 0
+    
+    def get_key_by_prefix(self, prefix: str) -> Optional[APIKey]:
+        """Find a key by its prefix."""
+        from sqlalchemy import select
+        
+        with self._Session() as session:
+            stmt = select(self._api_keys_table).where(
+                self._api_keys_table.c.key.like(f"{prefix}%")
+            )
+            result = session.execute(stmt).fetchone()
+            if result:
+                return APIKey(
+                    key=result.key,
+                    name=result.name,
+                    created_at=result.created_at,
+                    last_used_at=result.last_used_at,
+                    is_active=result.is_active,
+                    request_count=result.request_count,
+                )
+        return None
+    
+    @property
+    def key_count(self) -> int:
+        """Get number of keys."""
+        from sqlalchemy import select, func
+        
+        with self._Session() as session:
+            stmt = select(func.count()).select_from(self._api_keys_table)
+            return session.execute(stmt).scalar() or 0
+    
+    @property
+    def active_key_count(self) -> int:
+        """Get number of active keys."""
+        from sqlalchemy import select, func
+        
+        with self._Session() as session:
+            stmt = select(func.count()).select_from(self._api_keys_table).where(
+                self._api_keys_table.c.is_active == True
+            )
+            return session.execute(stmt).scalar() or 0
+
+
 # Global instance
-_api_key_manager: Optional[APIKeyManager] = None
+_api_key_manager: Optional[APIKeyManagerProtocol] = None
 
 
-def get_api_key_manager() -> APIKeyManager:
-    """Get or create the global API key manager."""
+def get_api_key_manager() -> APIKeyManagerProtocol:
+    """Get or create the global API key manager.
+    
+    Uses PostgreSQL if DATABASE_URL is set and connection succeeds,
+    otherwise falls back to local JSON storage.
+    """
     global _api_key_manager
     if _api_key_manager is None:
-        _api_key_manager = APIKeyManager()
+        database_url = os.getenv("DATABASE_URL", "")
+        if database_url:
+            try:
+                logger.info("Using PostgreSQL for API key storage")
+                _api_key_manager = PostgresAPIKeyManager()
+            except Exception as e:
+                logger.warning(f"Failed to connect to PostgreSQL for API keys: {e}")
+                logger.info("Falling back to local JSON file for API key storage")
+                _api_key_manager = LocalAPIKeyManager()
+        else:
+            logger.info("Using local JSON file for API key storage")
+            _api_key_manager = LocalAPIKeyManager()
     return _api_key_manager
 
 
