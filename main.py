@@ -131,101 +131,88 @@ setup_logging_intercept()
 
 
 # --- Configuration Validation ---
+def generate_api_key(prefix: str = "sk-") -> str:
+    """Generate an OpenAI-style API key."""
+    import secrets
+    import string
+    chars = string.ascii_letters + string.digits
+    random_part = ''.join(secrets.choice(chars) for _ in range(48))
+    return f"{prefix}{random_part}"
+
+
 def validate_configuration() -> None:
     """
-    Validates that required configuration is present.
+    Validates and auto-creates configuration if needed.
     
-    Checks:
-    - .env file exists
-    - Either REFRESH_TOKEN or KIRO_CREDS_FILE is configured
-    
-    Raises:
-        SystemExit: If critical configuration is missing
+    - Auto-creates config.yml from config.example.yml if not found
+    - Auto-generates API keys if using defaults
     """
-    errors = []
+    import yaml
     
-    # Check if config.yml file exists
     config_file = Path("config.yml")
     config_example = Path("config.example.yml")
     
+    # Auto-create config.yml if not found
     if not config_file.exists():
-        # Auto-create config.yml from config.example.yml if available
         if config_example.exists():
             import shutil
             shutil.copy(config_example, config_file)
             logger.info(f"Created {config_file} from {config_example}")
-            logger.info("Please edit config.yml to configure your credentials, then restart the server.")
         else:
-            errors.append(
-                "config.yml file not found!\n"
-                "\n"
-                "To get started:\n"
-                "1. Create config.yml or rename from config.example.yml:\n"
-                "   cp config.example.yml config.yml\n"
-                "\n"
-                "2. Edit config.yml and configure your credentials:\n"
-                "   2.1. Set your super-secret password as proxy_api_key\n"
-                "   2.2. Set your Kiro credentials:\n"
-                "      - 1 way: kiro_creds_file to your Kiro credentials JSON file\n"
-                "      - 2 way: refresh_token from Kiro IDE traffic\n"
-                "\n"
-                "See README.md for detailed instructions."
-            )
-    else:
-        # config.yml exists, check for credentials
-        has_refresh_token = bool(REFRESH_TOKEN)
-        has_creds_file = bool(KIRO_CREDS_FILE)
-        has_cli_db = bool(KIRO_CLI_DB_FILE)
-        
-        # Check if creds file actually exists
-        if KIRO_CREDS_FILE:
-            creds_path = Path(KIRO_CREDS_FILE).expanduser()
-            if not creds_path.exists():
-                has_creds_file = False
-                logger.warning(f"kiro_creds_file not found: {KIRO_CREDS_FILE}")
-        
-        # Check if CLI database file actually exists
-        if KIRO_CLI_DB_FILE:
-            cli_db_path = Path(KIRO_CLI_DB_FILE).expanduser()
-            if not cli_db_path.exists():
-                has_cli_db = False
-                logger.warning(f"KIRO_CLI_DB_FILE not found: {KIRO_CLI_DB_FILE}")
-        
-        if not has_refresh_token and not has_creds_file and not has_cli_db:
-            errors.append(
-                "No Kiro credentials configured!\n"
-                "\n"
-                "   Configure one of the following in your config.yml file:\n"
-                "\n"
-                "Set your super-secret password as proxy_api_key\n"
-                "   proxy_api_key: \"my-super-secret-password-123\"\n"
-                "\n"
-                "   Option 1 (Recommended): JSON credentials file\n"
-                "      kiro_creds_file: \"path/to/your/kiro-credentials.json\"\n"
-                "\n"
-                "   Option 2: Refresh token\n"
-                "      refresh_token: \"your_refresh_token_here\"\n"
-                "\n"
-                "   Option 3: kiro-cli SQLite database (AWS SSO)\n"
-                "      KIRO_CLI_DB_FILE=\"~/.local/share/kiro-cli/data.sqlite3\"\n"
-                "\n"
-                "   See README.md for how to obtain credentials."
-            )
+            # Create minimal config
+            minimal_config = {
+                "proxy_api_key": generate_api_key("sk-"),
+                "secret_key": generate_api_key("sk-"),
+                "kiro_region": "us-east-1",
+                "log_level": "INFO",
+            }
+            with open(config_file, 'w') as f:
+                yaml.dump(minimal_config, f, default_flow_style=False)
+            logger.info(f"Created minimal {config_file}")
     
-    # Print errors and exit if any
-    if errors:
-        logger.error("")
-        logger.error("=" * 60)
-        logger.error("  CONFIGURATION ERROR")
-        logger.error("=" * 60)
-        for error in errors:
-            for line in error.split('\n'):
-                logger.error(f"  {line}")
-        logger.error("=" * 60)
-        logger.error("")
-        sys.exit(1)
+    # Load current config and check if we need to generate keys
+    try:
+        with open(config_file, 'r') as f:
+            current_config = yaml.safe_load(f) or {}
+    except:
+        current_config = {}
     
-    # Note: Credential loading details are logged by KiroAuthManager
+    config_updated = False
+    
+    # Auto-generate proxy_api_key if using default or empty
+    proxy_key = current_config.get("proxy_api_key", "")
+    if not proxy_key or proxy_key in ("changeme_proxy_secret", "my-super-secret-password-123"):
+        new_proxy_key = generate_api_key("sk-")
+        current_config["proxy_api_key"] = new_proxy_key
+        config_updated = True
+        logger.info(f"Generated new proxy_api_key: {new_proxy_key}")
+    
+    # Auto-generate secret_key if using default or empty
+    secret_key = current_config.get("secret_key", "")
+    if not secret_key or secret_key in ("changeme_secret_key", "admin123", "my-webui-secret-key"):
+        new_secret_key = generate_api_key("sk-")
+        current_config["secret_key"] = new_secret_key
+        config_updated = True
+        logger.info(f"Generated new secret_key: {new_secret_key}")
+    
+    # Save updated config
+    if config_updated:
+        with open(config_file, 'w') as f:
+            yaml.dump(current_config, f, default_flow_style=False)
+        logger.info(f"Updated {config_file} with auto-generated keys")
+        logger.info("You can view/change these keys in the config.yml file")
+    
+    # Log the keys for user reference (only on first run)
+    if config_updated:
+        logger.info("=" * 60)
+        logger.info("  AUTO-GENERATED API KEYS")
+        logger.info("=" * 60)
+        logger.info(f"  Proxy API Key: {current_config.get('proxy_api_key')}")
+        logger.info(f"  WebUI Secret:  {current_config.get('secret_key')}")
+        logger.info("=" * 60)
+        logger.info("  Use Proxy API Key as 'api_key' when connecting clients")
+        logger.info("  Use WebUI Secret to login at http://localhost:8000/ui")
+        logger.info("=" * 60)
 
 
 # Run configuration validation on import
