@@ -5,12 +5,7 @@
 # REQUIRED
 # ===========================================
 
-# Password to protect YOUR proxy server
-# This is NOT a token from anywhere - YOU make it up!
-# Use this same value as api_key when connecting to your gateway
-proxy_api_key: "my-super-secret-password-123"
-
-# Secret key for Web UI login (separate from proxy_api_key)
+# Secret key for Web UI login
 # Use this to login at http://localhost:8000/ui
 secret_key: "my-webui-secret-key"
 

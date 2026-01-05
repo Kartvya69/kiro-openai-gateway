@@ -376,8 +376,6 @@ async def get_config(_: bool = Depends(verify_session)):
         
         # Mask sensitive values
         safe_config = config.copy()
-        if "proxy_api_key" in safe_config:
-            safe_config["proxy_api_key"] = "***" + safe_config["proxy_api_key"][-4:] if len(safe_config.get("proxy_api_key", "")) > 4 else "****"
         if "secret_key" in safe_config:
             safe_config["secret_key"] = "***" + safe_config["secret_key"][-4:] if len(safe_config.get("secret_key", "")) > 4 else "****"
         if "refresh_token" in safe_config and safe_config["refresh_token"]:
@@ -809,7 +807,6 @@ async def get_raw_config(_: bool = Depends(verify_session)):
         
         # Create a full config with defaults
         full_config = {
-            "proxy_api_key": config.get("proxy_api_key", ""),
             "secret_key": config.get("secret_key", ""),
             "kiro_creds_file": config.get("kiro_creds_file", ""),
             "refresh_token": config.get("refresh_token", ""),
@@ -822,6 +819,9 @@ async def get_raw_config(_: bool = Depends(verify_session)):
             "tool_description_max_length": config.get("tool_description_max_length", 10000),
             "debug_mode": config.get("debug_mode", "off"),
             "debug_dir": config.get("debug_dir", "debug_logs"),
+            "fake_reasoning_enabled": config.get("fake_reasoning_enabled", True),
+            "fake_reasoning_max_tokens": config.get("fake_reasoning_max_tokens", 4000),
+            "fake_reasoning_handling": config.get("fake_reasoning_handling", "as_reasoning_content"),
             "oauth": config.get("oauth", {
                 "callback_port_start": 19876,
                 "callback_port_end": 19880,
@@ -832,7 +832,7 @@ async def get_raw_config(_: bool = Depends(verify_session)):
         
         # Mask sensitive values
         masked_config = full_config.copy()
-        for key in ["proxy_api_key", "secret_key", "refresh_token"]:
+        for key in ["secret_key", "refresh_token"]:
             if masked_config.get(key):
                 val = masked_config[key]
                 if len(val) > 4:
@@ -859,7 +859,6 @@ def get_config_schema() -> Dict[str, Any]:
                 "title": "Authentication",
                 "icon": "fa-key",
                 "fields": [
-                    {"key": "proxy_api_key", "label": "Proxy API Key", "type": "password", "description": "Password to protect your proxy server"},
                     {"key": "secret_key", "label": "Secret Key (Web UI)", "type": "password", "description": "Password for Web UI access"},
                 ]
             },
@@ -906,7 +905,7 @@ async def update_config_field(update: ConfigFieldUpdate, _: bool = Depends(verif
     
     # Validate field
     valid_fields = [
-        "proxy_api_key", "secret_key", "kiro_creds_file", "refresh_token",
+        "secret_key", "kiro_creds_file", "refresh_token",
         "profile_arn", "kiro_region", "log_level", "first_token_timeout",
         "first_token_max_retries", "streaming_read_timeout", "tool_description_max_length",
         "debug_mode", "debug_dir"
@@ -1181,3 +1180,128 @@ async def get_kiro_credits(
         },
         "last_updated": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# --- API Keys Management ---
+
+from kiro_gateway.api_keys import get_api_key_manager
+
+
+class CreateAPIKeyRequest(BaseModel):
+    name: str
+
+
+class UpdateAPIKeyRequest(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@webui_router.get("/api/keys")
+async def list_api_keys(_: bool = Depends(verify_session)):
+    """List all API keys."""
+    manager = get_api_key_manager()
+    keys = manager.list_keys(mask=True)
+    
+    return {
+        "keys": keys,
+        "total_count": manager.key_count,
+        "active_count": manager.active_key_count,
+    }
+
+
+@webui_router.post("/api/keys")
+async def create_api_key(request: CreateAPIKeyRequest, _: bool = Depends(verify_session)):
+    """Create a new API key."""
+    manager = get_api_key_manager()
+    api_key = manager.create_key(request.name)
+    
+    add_log_entry(f"API key created: {request.name}", "INFO")
+    
+    # Return full key only on creation
+    return {
+        "success": True,
+        "key": api_key.key,  # Full key shown only once
+        "name": api_key.name,
+        "created_at": api_key.created_at.isoformat(),
+        "message": "API key created. Save this key - it won't be shown again!",
+    }
+
+
+@webui_router.delete("/api/keys/{key_prefix}")
+async def delete_api_key(key_prefix: str, _: bool = Depends(verify_session)):
+    """Delete an API key by its prefix."""
+    manager = get_api_key_manager()
+    
+    # Find key by prefix
+    api_key = manager.get_key_by_prefix(key_prefix)
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    # Don't allow deleting the last key
+    if manager.key_count <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the last API key")
+    
+    manager.delete_key(api_key.key)
+    add_log_entry(f"API key deleted: {api_key.name}", "INFO")
+    
+    return {"success": True, "message": "API key deleted"}
+
+
+@webui_router.patch("/api/keys/{key_prefix}")
+async def update_api_key(
+    key_prefix: str,
+    update: UpdateAPIKeyRequest,
+    _: bool = Depends(verify_session),
+):
+    """Update an API key."""
+    manager = get_api_key_manager()
+    
+    # Find key by prefix
+    api_key = manager.get_key_by_prefix(key_prefix)
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    # Don't allow deactivating the last active key
+    if update.is_active is False and manager.active_key_count <= 1:
+        raise HTTPException(status_code=400, detail="Cannot deactivate the last active API key")
+    
+    manager.update_key(api_key.key, name=update.name, is_active=update.is_active)
+    add_log_entry(f"API key updated: {api_key.name}", "INFO")
+    
+    return {"success": True, "message": "API key updated"}
+
+
+@webui_router.post("/api/keys/{key_prefix}/toggle")
+async def toggle_api_key(key_prefix: str, _: bool = Depends(verify_session)):
+    """Toggle an API key's active status."""
+    manager = get_api_key_manager()
+    
+    # Find key by prefix
+    api_key = manager.get_key_by_prefix(key_prefix)
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    new_status = not api_key.is_active
+    
+    # Don't allow deactivating the last active key
+    if not new_status and manager.active_key_count <= 1:
+        raise HTTPException(status_code=400, detail="Cannot deactivate the last active API key")
+    
+    manager.update_key(api_key.key, is_active=new_status)
+    
+    status_text = "activated" if new_status else "deactivated"
+    add_log_entry(f"API key {status_text}: {api_key.name}", "INFO")
+    
+    return {"success": True, "is_active": new_status, "message": f"API key {status_text}"}
+
+
+@webui_router.get("/api/keys/{key_prefix}/copy")
+async def copy_api_key(key_prefix: str, _: bool = Depends(verify_session)):
+    """Get full API key for copying."""
+    manager = get_api_key_manager()
+    
+    api_key = manager.get_key_by_prefix(key_prefix)
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    return {"success": True, "key": api_key.key}

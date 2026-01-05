@@ -73,12 +73,10 @@ def _get_config_value(config: Dict[str, Any], key: str, default: Any = None) -> 
 _config = _load_yaml_config()
 
 # ==================================================================================================
-# Proxy Server Settings
+# Web UI Settings
 # ==================================================================================================
 
-PROXY_API_KEY: str = _get_config_value(_config, "proxy_api_key", "changeme_proxy_secret")
-
-# Secret key for Web UI login (separate from proxy_api_key)
+# Secret key for Web UI login
 SECRET_KEY: str = _get_config_value(_config, "secret_key", "admin123")
 
 # ==================================================================================================

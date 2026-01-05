@@ -36,10 +36,10 @@ from fastapi.security import APIKeyHeader
 from loguru import logger
 
 from kiro_gateway.config import (
-    PROXY_API_KEY,
     AVAILABLE_MODELS,
     APP_VERSION,
 )
+from kiro_gateway.api_keys import validate_api_key
 from kiro_gateway.models import (
     OpenAIModel,
     ModelList,
@@ -70,7 +70,8 @@ async def verify_api_key(auth_header: str = Security(api_key_header)) -> bool:
     """
     Verify API key in Authorization header.
     
-    Expects format: "Bearer {PROXY_API_KEY}"
+    Expects format: "Bearer {API_KEY}"
+    Supports multiple API keys managed via WebUI.
     
     Args:
         auth_header: Authorization header value
@@ -81,9 +82,15 @@ async def verify_api_key(auth_header: str = Security(api_key_header)) -> bool:
     Raises:
         HTTPException: 401 if key is invalid or missing
     """
-    if not auth_header or auth_header != f"Bearer {PROXY_API_KEY}":
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.warning("Access attempt with missing or malformed API key.")
+        raise HTTPException(status_code=401, detail="Invalid or missing API Key")
+    
+    key = auth_header[7:]  # Remove "Bearer " prefix
+    if not validate_api_key(key):
         logger.warning("Access attempt with invalid API key.")
         raise HTTPException(status_code=401, detail="Invalid or missing API Key")
+    
     return True
 
 

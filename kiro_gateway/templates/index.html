@@ -65,6 +65,10 @@
                     <i class="fas fa-cog"></i>
                     <span>Configuration</span>
                 </a>
+                <a href="#api-keys" class="nav-item" data-section="api-keys">
+                    <i class="fas fa-key"></i>
+                    <span>API Keys</span>
+                </a>
                 <a href="#accounts" class="nav-item" data-section="accounts">
                     <i class="fas fa-users"></i>
                     <span>Accounts</span>
@@ -196,7 +200,7 @@
                             </div>
                             <pre class="example-code">curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_PROXY_API_KEY" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
     "model": "claude-sonnet-4-5",
     "messages": [{"role": "user", "content": "Hello!"}],
@@ -212,7 +216,7 @@
                                 </button>
                             </div>
                             <pre class="example-code">curl http://localhost:8000/v1/models \
-  -H "Authorization: Bearer YOUR_PROXY_API_KEY"</pre>
+  -H "Authorization: Bearer YOUR_API_KEY"</pre>
                         </div>
                     </div>
                 </div>
@@ -233,11 +237,6 @@
                     </div>
                     <div class="panel-content">
                         <div class="form-row">
-                            <div class="form-group">
-                                <label for="cfg-proxy-key">Proxy API Key</label>
-                                <input type="password" id="cfg-proxy-key" placeholder="Your proxy API key">
-                                <small>Password to protect your proxy server</small>
-                            </div>
                             <div class="form-group">
                                 <label for="cfg-secret-key">Secret Key (Web UI)</label>
                                 <input type="password" id="cfg-secret-key" placeholder="Web UI login key">
@@ -315,6 +314,67 @@
                                 <input type="number" id="cfg-tool-desc-length" value="10000" min="1000" max="50000">
                             </div>
                         </div>
+                    </div>
+                </div>
+                
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-brain"></i> Fake Reasoning (Extended Thinking)</h3>
+                    </div>
+                    <div class="panel-content">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="cfg-fake-reasoning-enabled">Fake Reasoning</label>
+                                <select id="cfg-fake-reasoning-enabled">
+                                    <option value="true">Enabled</option>
+                                    <option value="false">Disabled</option>
+                                </select>
+                                <small>Inject thinking tags to enable model reasoning</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="cfg-fake-reasoning-max-tokens">Max Thinking Tokens</label>
+                                <input type="number" id="cfg-fake-reasoning-max-tokens" value="4000" min="100" max="32000">
+                                <small>Maximum tokens for reasoning process</small>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="cfg-fake-reasoning-handling">Handling Mode</label>
+                                <select id="cfg-fake-reasoning-handling">
+                                    <option value="as_reasoning_content">As Reasoning Content (OpenAI-compatible)</option>
+                                    <option value="remove">Remove (hide thinking)</option>
+                                    <option value="pass">Pass Through (keep tags)</option>
+                                    <option value="strip_tags">Strip Tags (keep content)</option>
+                                </select>
+                                <small>How to handle thinking blocks in responses</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- API Keys Section -->
+            <section id="api-keys" class="section">
+                <div class="section-header">
+                    <h2><i class="fas fa-key"></i> API Keys</h2>
+                    <button class="btn btn-primary" onclick="createApiKey()">
+                        <i class="fas fa-plus"></i> Create Key
+                    </button>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-key"></i> Manage API Keys</h3>
+                    </div>
+                    <div class="panel-content">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="new-api-key-name">Key Name</label>
+                                <input type="text" id="new-api-key-name" placeholder="e.g. Dev Key">
+                                <small>Create a new API key for client access</small>
+                            </div>
+                        </div>
+                        <div id="api-keys-list" class="accounts-list"></div>
                     </div>
                 </div>
             </section>

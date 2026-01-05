@@ -8,6 +8,7 @@ Verifies loading settings from YAML configuration file.
 import pytest
 import tempfile
 import os
+from unittest.mock import patch
 from pathlib import Path
 
 import yaml

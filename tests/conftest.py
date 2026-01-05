@@ -47,12 +47,10 @@ def mock_env_vars(monkeypatch):
     """
     print("Setting up mocked environment variables...")
     monkeypatch.setenv("REFRESH_TOKEN", "test_refresh_token_abcdef")
-    monkeypatch.setenv("PROXY_API_KEY", "test_proxy_key_12345")
     monkeypatch.setenv("PROFILE_ARN", "arn:aws:codewhisperer:us-east-1:123456789:profile/test")
     monkeypatch.setenv("KIRO_REGION", "us-east-1")
     return {
         "REFRESH_TOKEN": "test_refresh_token_abcdef",
-        "PROXY_API_KEY": "test_proxy_key_12345",
         "PROFILE_ARN": "arn:aws:codewhisperer:us-east-1:123456789:profile/test",
         "KIRO_REGION": "us-east-1"
     }
@@ -85,9 +83,13 @@ def mock_kiro_token_response(valid_kiro_token):
 
 @pytest.fixture
 def valid_proxy_api_key():
-    """Returns a valid proxy API key (from config)."""
-    from kiro_gateway.config import PROXY_API_KEY
-    return PROXY_API_KEY
+    """Returns a valid proxy API key (from API key manager)."""
+    from kiro_gateway.api_keys import get_api_key_manager
+    manager = get_api_key_manager()
+    keys = manager.list_keys(mask=False)
+    if keys:
+        return keys[0]["key"]
+    return manager.create_key("Test Key").key
 
 
 @pytest.fixture

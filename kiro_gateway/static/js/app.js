@@ -16,6 +16,7 @@ const loginError = document.getElementById('login-error');
 const logoutBtn = document.getElementById('logout-btn');
 const addAccountBtn = document.getElementById('add-account-btn');
 const accountsList = document.getElementById('accounts-list');
+const apiKeysList = document.getElementById('api-keys-list');
 const modal = document.getElementById('modal');
 
 // Mobile elements
@@ -728,6 +729,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
         if (section === 'credits') loadCredits();
         if (section === 'accounts') loadAccounts();
         if (section === 'config') loadConfig();
+        if (section === 'api-keys') loadApiKeys();
         if (section === 'dashboard') { loadSystemInfo(); loadStats(); }
     });
 });
@@ -735,6 +737,32 @@ document.querySelectorAll('.nav-item').forEach(item => {
 // ============================================
 // SYSTEM INFO
 // ============================================
+
+let serverStartTime = null;
+let uptimeInterval = null;
+
+function formatUptime(seconds) {
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    if (days > 0) return `${days}d ${hours}h ${mins}m`;
+    if (hours > 0) return `${hours}h ${mins}m ${secs}s`;
+    if (mins > 0) return `${mins}m ${secs}s`;
+    return `${secs}s`;
+}
+
+function startUptimeTimer(uptimeSeconds) {
+    serverStartTime = Date.now() - (uptimeSeconds * 1000);
+    
+    if (uptimeInterval) clearInterval(uptimeInterval);
+    
+    uptimeInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - serverStartTime) / 1000);
+        document.getElementById('stat-uptime').textContent = formatUptime(elapsed);
+    }, 1000);
+}
 
 async function loadSystemInfo() {
     try {
@@ -749,7 +777,13 @@ async function loadSystemInfo() {
         document.getElementById('sys-memory').textContent = `${data.memory.process_mb} MB / ${data.memory.percent}%`;
         document.getElementById('sys-cpu').textContent = `${data.cpu.percent}% (${data.cpu.cores} cores)`;
         document.getElementById('sys-pid').textContent = data.pid;
-        document.getElementById('stat-uptime').textContent = data.uptime;
+        
+        // Start live uptime timer
+        if (data.uptime_seconds) {
+            startUptimeTimer(data.uptime_seconds);
+        } else {
+            document.getElementById('stat-uptime').textContent = data.uptime;
+        }
     } catch (e) {
         console.error('Failed to load system info:', e);
     }
@@ -766,7 +800,6 @@ async function loadConfig() {
         
         if (data.config) {
             // Populate form fields
-            document.getElementById('cfg-proxy-key').value = data.config.proxy_api_key || '';
             document.getElementById('cfg-secret-key').value = data.config.secret_key || '';
             document.getElementById('cfg-creds-file').value = data.config.kiro_creds_file || '';
             document.getElementById('cfg-region').value = data.config.kiro_region || 'us-east-1';
@@ -776,6 +809,11 @@ async function loadConfig() {
             document.getElementById('cfg-streaming-timeout').value = data.config.streaming_read_timeout || 300;
             document.getElementById('cfg-max-retries').value = data.config.first_token_max_retries || 3;
             document.getElementById('cfg-tool-desc-length').value = data.config.tool_description_max_length || 10000;
+            
+            // Fake reasoning settings
+            document.getElementById('cfg-fake-reasoning-enabled').value = data.config.fake_reasoning_enabled !== false ? 'true' : 'false';
+            document.getElementById('cfg-fake-reasoning-max-tokens').value = data.config.fake_reasoning_max_tokens || 4000;
+            document.getElementById('cfg-fake-reasoning-handling').value = data.config.fake_reasoning_handling || 'as_reasoning_content';
         }
     } catch (e) {
         console.error('Failed to load config:', e);
@@ -784,7 +822,6 @@ async function loadConfig() {
 
 async function saveConfig() {
     const config = {
-        proxy_api_key: document.getElementById('cfg-proxy-key').value,
         secret_key: document.getElementById('cfg-secret-key').value,
         kiro_creds_file: document.getElementById('cfg-creds-file').value,
         kiro_region: document.getElementById('cfg-region').value,
@@ -794,6 +831,9 @@ async function saveConfig() {
         streaming_read_timeout: parseInt(document.getElementById('cfg-streaming-timeout').value) || 300,
         first_token_max_retries: parseInt(document.getElementById('cfg-max-retries').value) || 3,
         tool_description_max_length: parseInt(document.getElementById('cfg-tool-desc-length').value) || 10000,
+        fake_reasoning_enabled: document.getElementById('cfg-fake-reasoning-enabled').value === 'true',
+        fake_reasoning_max_tokens: parseInt(document.getElementById('cfg-fake-reasoning-max-tokens').value) || 4000,
+        fake_reasoning_handling: document.getElementById('cfg-fake-reasoning-handling').value,
     };
     
     try {
@@ -810,6 +850,145 @@ async function saveConfig() {
         }
     } catch (e) {
         showToast('Error saving configuration: ' + e.message, 'error');
+    }
+}
+
+// ============================================
+// API KEYS MANAGEMENT
+// ============================================
+
+async function loadApiKeys() {
+    if (!apiKeysList) return;
+    try {
+        const response = await api('/ui/api/keys');
+        const data = await response.json();
+        renderApiKeys(data.keys || []);
+    } catch (e) {
+        console.error('Failed to load API keys:', e);
+    }
+}
+
+function renderApiKeys(keys) {
+    if (!apiKeysList) return;
+    if (!keys || keys.length === 0) {
+        apiKeysList.innerHTML = `
+            <div class="empty-state">
+                <div class="icon">🔑</div>
+                <h3>No API keys</h3>
+                <p>Create a new API key to access the proxy server.</p>
+            </div>
+        `;
+        return;
+    }
+    
+    apiKeysList.innerHTML = keys.map((keyItem, index) => {
+        const prefix = keyItem.key.split('...')[0];
+        const statusClass = keyItem.is_active ? 'healthy' : 'expired';
+        return `
+            <div class="account-card" data-key-prefix="${prefix}" style="animation-delay: ${index * 0.05}s">
+                <div class="account-info">
+                    <div class="account-status ${statusClass}" title="${keyItem.is_active ? 'Active' : 'Inactive'}"></div>
+                    <div class="account-avatar"><i class="fas fa-key"></i></div>
+                    <div class="account-details">
+                        <h3>${escapeHtml(keyItem.name)}</h3>
+                        <div class="meta">
+                            <span>${escapeHtml(keyItem.key)}</span>
+                            <span class="dot"></span>
+                            <span>${formatNumber(keyItem.request_count)} requests</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="account-actions">
+                    <button class="btn btn-secondary btn-sm" onclick="toggleApiKey('${prefix}')" title="${keyItem.is_active ? 'Deactivate' : 'Activate'}">
+                        <i class="fas fa-${keyItem.is_active ? 'pause' : 'play'}"></i>
+                    </button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteApiKey('${prefix}', '${escapeHtml(keyItem.name)}')">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="copyApiKey('${prefix}')" title="Copy API Key">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function createApiKey() {
+    const nameInput = document.getElementById('new-api-key-name');
+    const name = nameInput?.value?.trim();
+    
+    if (!name) {
+        showToast('Please enter a key name', 'error');
+        return;
+    }
+    
+    try {
+        const response = await api('/ui/api/keys', {
+            method: 'POST',
+            body: JSON.stringify({ name }),
+        });
+        const data = await response.json();
+        if (data.success) {
+            if (data.key) {
+                copyToClipboard(data.key);
+                showToast('API key created and copied to clipboard', 'success');
+            } else {
+                showToast('API key created', 'success');
+            }
+            if (nameInput) nameInput.value = '';
+            loadApiKeys();
+        } else {
+            showToast('Failed to create API key', 'error');
+        }
+    } catch (e) {
+        showToast('Error creating API key: ' + e.message, 'error');
+    }
+}
+
+async function deleteApiKey(prefix, name) {
+    if (!confirm(`Delete API key "${name}"?`)) return;
+    
+    try {
+        const response = await api(`/ui/api/keys/${prefix}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (data.success) {
+            showToast('API key deleted', 'success');
+            loadApiKeys();
+        } else {
+            showToast('Failed to delete API key', 'error');
+        }
+    } catch (e) {
+        showToast('Error deleting API key: ' + e.message, 'error');
+    }
+}
+
+async function toggleApiKey(prefix) {
+    try {
+        const response = await api(`/ui/api/keys/${prefix}/toggle`, { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+            showToast(data.message, 'success');
+            loadApiKeys();
+        } else {
+            showToast('Failed to toggle API key', 'error');
+        }
+    } catch (e) {
+        showToast('Error toggling API key: ' + e.message, 'error');
+    }
+}
+
+async function copyApiKey(prefix) {
+    try {
+        const response = await api(`/ui/api/keys/${prefix}/copy`);
+        const data = await response.json();
+        if (data.success && data.key) {
+            copyToClipboard(data.key);
+        } else {
+            showToast('Failed to copy API key', 'error');
+        }
+    } catch (e) {
+        showToast('Error copying API key: ' + e.message, 'error');
     }
 }
 

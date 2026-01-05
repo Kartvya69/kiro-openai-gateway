@@ -13,20 +13,20 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from kiro_gateway.routes import verify_api_key, router
-from kiro_gateway.config import PROXY_API_KEY, APP_VERSION, AVAILABLE_MODELS
+from kiro_gateway.config import APP_VERSION, AVAILABLE_MODELS
 
 
 class TestVerifyApiKey:
     """Тесты функции verify_api_key."""
     
     @pytest.mark.asyncio
-    async def test_valid_api_key_returns_true(self):
+    async def test_valid_api_key_returns_true(self, valid_proxy_api_key):
         """
         Что он делает: Проверяет успешную валидацию корректного ключа.
         Цель: Убедиться, что валидный ключ проходит проверку.
         """
         print("Настройка: Валидный API ключ...")
-        valid_header = f"Bearer {PROXY_API_KEY}"
+        valid_header = f"Bearer {valid_proxy_api_key}"
         
         print("Действие: Проверка ключа...")
         result = await verify_api_key(valid_header)
@@ -82,13 +82,13 @@ class TestVerifyApiKey:
         assert exc_info.value.status_code == 401
     
     @pytest.mark.asyncio
-    async def test_wrong_format_raises_401(self):
+    async def test_wrong_format_raises_401(self, valid_proxy_api_key):
         """
         Что он делает: Проверяет отклонение ключа без Bearer.
         Цель: Убедиться, что неправильный формат вызывает 401.
         """
         print("Настройка: Ключ без Bearer...")
-        wrong_format = PROXY_API_KEY  # Без "Bearer "
+        wrong_format = valid_proxy_api_key  # Без "Bearer "
         
         print("Действие: Проверка ключа...")
         with pytest.raises(HTTPException) as exc_info:

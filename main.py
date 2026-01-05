@@ -48,7 +48,6 @@ from kiro_gateway.config import (
     REGION,
     KIRO_CREDS_FILE,
     KIRO_CLI_DB_FILE,
-    PROXY_API_KEY,
     LOG_LEVEL,
     OAUTH_CALLBACK_PORT_START,
     OAUTH_CALLBACK_PORT_END,
@@ -131,21 +130,13 @@ setup_logging_intercept()
 
 
 # --- Configuration Validation ---
-def generate_api_key(prefix: str = "sk-") -> str:
-    """Generate an OpenAI-style API key."""
-    import secrets
-    import string
-    chars = string.ascii_letters + string.digits
-    random_part = ''.join(secrets.choice(chars) for _ in range(48))
-    return f"{prefix}{random_part}"
-
-
 def validate_configuration() -> None:
     """
     Validates and auto-creates configuration if needed.
     
     - Auto-creates config.yml from config.example.yml if not found
-    - Auto-generates API keys if using defaults
+    - Auto-generates secret_key for WebUI if using defaults
+    - API keys are managed separately via api_keys.json
     """
     import yaml
     
@@ -160,9 +151,13 @@ def validate_configuration() -> None:
             logger.info(f"Created {config_file} from {config_example}")
         else:
             # Create minimal config
+            import secrets
+            import string
+            chars = string.ascii_letters + string.digits
+            secret_key = "sk-" + ''.join(secrets.choice(chars) for _ in range(48))
+            
             minimal_config = {
-                "proxy_api_key": generate_api_key("sk-"),
-                "secret_key": generate_api_key("sk-"),
+                "secret_key": secret_key,
                 "kiro_region": "us-east-1",
                 "log_level": "INFO",
             }
@@ -170,7 +165,7 @@ def validate_configuration() -> None:
                 yaml.dump(minimal_config, f, default_flow_style=False)
             logger.info(f"Created minimal {config_file}")
     
-    # Load current config and check if we need to generate keys
+    # Load current config and check if we need to generate secret_key
     try:
         with open(config_file, 'r') as f:
             current_config = yaml.safe_load(f) or {}
@@ -179,40 +174,42 @@ def validate_configuration() -> None:
     
     config_updated = False
     
-    # Auto-generate proxy_api_key if using default or empty
-    proxy_key = current_config.get("proxy_api_key", "")
-    if not proxy_key or proxy_key in ("changeme_proxy_secret", "my-super-secret-password-123"):
-        new_proxy_key = generate_api_key("sk-")
-        current_config["proxy_api_key"] = new_proxy_key
-        config_updated = True
-        logger.info(f"Generated new proxy_api_key: {new_proxy_key}")
-    
     # Auto-generate secret_key if using default or empty
     secret_key = current_config.get("secret_key", "")
     if not secret_key or secret_key in ("changeme_secret_key", "admin123", "my-webui-secret-key"):
-        new_secret_key = generate_api_key("sk-")
+        import secrets
+        import string
+        chars = string.ascii_letters + string.digits
+        new_secret_key = "sk-" + ''.join(secrets.choice(chars) for _ in range(48))
         current_config["secret_key"] = new_secret_key
         config_updated = True
-        logger.info(f"Generated new secret_key: {new_secret_key}")
+        logger.info(f"Generated new secret_key for WebUI")
+    
+    # Remove old proxy_api_key if present (now managed via api_keys.json)
+    if "proxy_api_key" in current_config:
+        del current_config["proxy_api_key"]
+        config_updated = True
+        logger.info("Removed proxy_api_key from config (now managed via WebUI -> API Keys)")
     
     # Save updated config
     if config_updated:
         with open(config_file, 'w') as f:
             yaml.dump(current_config, f, default_flow_style=False)
-        logger.info(f"Updated {config_file} with auto-generated keys")
-        logger.info("You can view/change these keys in the config.yml file")
+        logger.info(f"Updated {config_file}")
     
-    # Log the keys for user reference (only on first run)
-    if config_updated:
-        logger.info("=" * 60)
-        logger.info("  AUTO-GENERATED API KEYS")
-        logger.info("=" * 60)
-        logger.info(f"  Proxy API Key: {current_config.get('proxy_api_key')}")
-        logger.info(f"  WebUI Secret:  {current_config.get('secret_key')}")
-        logger.info("=" * 60)
-        logger.info("  Use Proxy API Key as 'api_key' when connecting clients")
-        logger.info("  Use WebUI Secret to login at http://localhost:8000/ui")
-        logger.info("=" * 60)
+    # Initialize API key manager (creates default keys if needed)
+    from kiro_gateway.api_keys import get_api_key_manager
+    api_key_manager = get_api_key_manager()
+    
+    # Log info for user
+    logger.info("=" * 60)
+    logger.info("  KIRO GATEWAY STARTED")
+    logger.info("=" * 60)
+    logger.info(f"  WebUI: http://localhost:8000/ui")
+    logger.info(f"  WebUI Secret: {current_config.get('secret_key', 'check config.yml')[:20]}...")
+    logger.info(f"  API Keys: {api_key_manager.key_count} keys configured")
+    logger.info("  Manage API keys in WebUI -> API Keys")
+    logger.info("=" * 60)
 
 
 # Run configuration validation on import
