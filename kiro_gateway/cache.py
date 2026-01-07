@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Kiro OpenAI Gateway
+# Kiro Gateway
+# https://github.com/jwadow/kiro-gateway
 # Copyright (C) 2025 Jwadow
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,10 +18,10 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Кэш метаданных моделей для Kiro Gateway.
+Model metadata cache for Kiro Gateway.
 
-Потокобезопасное хранилище информации о доступных моделях
-с поддержкой TTL и lazy loading.
+Thread-safe storage for available model information
+with TTL and lazy loading support.
 """
 
 import asyncio
@@ -34,13 +35,13 @@ from kiro_gateway.config import MODEL_CACHE_TTL, DEFAULT_MAX_INPUT_TOKENS
 
 class ModelInfoCache:
     """
-    Потокобезопасный кэш для хранения метаданных о моделях.
+    Thread-safe cache for storing model metadata.
     
-    Использует Lazy Loading для заполнения - данные загружаются
-    только при первом обращении или когда кэш устарел.
+    Uses Lazy Loading for population - data is loaded
+    only on first access or when cache is stale.
     
     Attributes:
-        cache_ttl: Время жизни кэша в секундах
+        cache_ttl: Cache time-to-live in seconds
     
     Example:
         >>> cache = ModelInfoCache()
@@ -51,10 +52,10 @@ class ModelInfoCache:
     
     def __init__(self, cache_ttl: int = MODEL_CACHE_TTL):
         """
-        Инициализирует кэш моделей.
+        Initializes the model cache.
         
         Args:
-            cache_ttl: Время жизни кэша в секундах (по умолчанию из конфига)
+            cache_ttl: Cache time-to-live in seconds (default from config)
         """
         self._cache: Dict[str, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
@@ -63,13 +64,13 @@ class ModelInfoCache:
     
     async def update(self, models_data: List[Dict[str, Any]]) -> None:
         """
-        Обновляет кэш моделей.
+        Updates the model cache.
         
-        Потокобезопасно заменяет содержимое кэша новыми данными.
+        Thread-safely replaces cache contents with new data.
         
         Args:
-            models_data: Список словарей с информацией о моделях.
-                        Каждый словарь должен содержать ключ "modelId".
+            models_data: List of dictionaries with model information.
+                        Each dictionary must contain the "modelId" key.
         """
         async with self._lock:
             logger.info(f"Updating model cache. Found {len(models_data)} models.")
@@ -78,25 +79,25 @@ class ModelInfoCache:
     
     def get(self, model_id: str) -> Optional[Dict[str, Any]]:
         """
-        Возвращает информацию о модели.
+        Returns model information.
         
         Args:
-            model_id: ID модели
+            model_id: Model ID
         
         Returns:
-            Словарь с информацией о модели или None если модель не найдена
+            Dictionary with model information or None if model not found
         """
         return self._cache.get(model_id)
     
     def get_max_input_tokens(self, model_id: str) -> int:
         """
-        Возвращает maxInputTokens для модели.
+        Returns maxInputTokens for the model.
         
         Args:
-            model_id: ID модели
+            model_id: Model ID
         
         Returns:
-            Максимальное количество input токенов или DEFAULT_MAX_INPUT_TOKENS
+            Maximum number of input tokens or DEFAULT_MAX_INPUT_TOKENS
         """
         model = self._cache.get(model_id)
         if model and model.get("tokenLimits"):
@@ -105,20 +106,20 @@ class ModelInfoCache:
     
     def is_empty(self) -> bool:
         """
-        Проверяет, пуст ли кэш.
+        Checks if the cache is empty.
         
         Returns:
-            True если кэш пуст
+            True if cache is empty
         """
         return not self._cache
     
     def is_stale(self) -> bool:
         """
-        Проверяет, устарел ли кэш.
+        Checks if the cache is stale.
         
         Returns:
-            True если кэш устарел (прошло больше cache_ttl секунд)
-            или если кэш никогда не обновлялся
+            True if cache is stale (more than cache_ttl seconds have passed)
+            or if cache was never updated
         """
         if not self._last_update:
             return True
@@ -126,19 +127,19 @@ class ModelInfoCache:
     
     def get_all_model_ids(self) -> List[str]:
         """
-        Возвращает список всех ID моделей в кэше.
+        Returns a list of all model IDs in the cache.
         
         Returns:
-            Список ID моделей
+            List of model IDs
         """
         return list(self._cache.keys())
     
     @property
     def size(self) -> int:
-        """Количество моделей в кэше."""
+        """Number of models in the cache."""
         return len(self._cache)
     
     @property
     def last_update_time(self) -> Optional[float]:
-        """Время последнего обновления (timestamp) или None."""
+        """Last update time (timestamp) or None."""
         return self._last_update

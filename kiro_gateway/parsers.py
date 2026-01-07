@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Kiro OpenAI Gateway
+# Kiro Gateway
+# https://github.com/jwadow/kiro-gateway
 # Copyright (C) 2025 Jwadow
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,13 +18,13 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Парсеры для AWS Event Stream формата.
+Parsers for AWS Event Stream format.
 
-Содержит классы и функции для:
-- Парсинга бинарного AWS SSE потока
-- Извлечения JSON событий
-- Обработки tool calls
-- Дедупликации контента
+Contains classes and functions for:
+- Parsing binary AWS SSE stream
+- Extracting JSON events
+- Processing tool calls
+- Content deduplication
 """
 
 import json
@@ -37,17 +38,17 @@ from kiro_gateway.utils import generate_tool_call_id
 
 def find_matching_brace(text: str, start_pos: int) -> int:
     """
-    Находит позицию закрывающей скобки с учётом вложенности и строк.
+    Finds the position of the closing brace considering nesting and strings.
     
-    Использует bracket counting для корректного парсинга вложенных JSON.
-    Учитывает строки в кавычках и escape-последовательности.
+    Uses bracket counting for correct parsing of nested JSON.
+    Accounts for quoted strings and escape sequences.
     
     Args:
-        text: Текст для поиска
-        start_pos: Позиция открывающей скобки '{'
+        text: Text to search
+        start_pos: Position of opening brace '{'
     
     Returns:
-        Позиция закрывающей скобки или -1 если не найдена
+        Position of closing brace or -1 if not found
     
     Example:
         >>> find_matching_brace('{"a": {"b": 1}}', 0)
@@ -90,16 +91,16 @@ def find_matching_brace(text: str, start_pos: int) -> int:
 
 def parse_bracket_tool_calls(response_text: str) -> List[Dict[str, Any]]:
     """
-    Парсит tool calls в формате [Called func_name with args: {...}].
+    Parses tool calls in [Called func_name with args: {...}] format.
     
-    Некоторые модели возвращают tool calls в текстовом формате вместо
-    структурированного JSON. Эта функция извлекает их.
+    Some models return tool calls in text format instead of
+    structured JSON. This function extracts them.
     
     Args:
-        response_text: Текст ответа модели
+        response_text: Model response text
     
     Returns:
-        Список tool calls в формате OpenAI
+        List of tool calls in OpenAI format
     
     Example:
         >>> text = "[Called get_weather with args: {\"city\": \"London\"}]"
@@ -117,12 +118,12 @@ def parse_bracket_tool_calls(response_text: str) -> List[Dict[str, Any]]:
         func_name = match.group(1)
         args_start = match.end()
         
-        # Ищем начало JSON
+        # Find JSON start
         json_start = response_text.find('{', args_start)
         if json_start == -1:
             continue
         
-        # Ищем конец JSON с учётом вложенности
+        # Find JSON end considering nesting
         json_end = find_matching_brace(response_text, json_start)
         if json_end == -1:
             continue
@@ -132,7 +133,7 @@ def parse_bracket_tool_calls(response_text: str) -> List[Dict[str, Any]]:
         try:
             args = json.loads(json_str)
             tool_call_id = generate_tool_call_id()
-            # index будет добавлен позже при формировании финального ответа
+            # index will be added later when forming the final response
             tool_calls.append({
                 "id": tool_call_id,
                 "type": "function",
@@ -149,50 +150,50 @@ def parse_bracket_tool_calls(response_text: str) -> List[Dict[str, Any]]:
 
 def deduplicate_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Удаляет дубликаты tool calls.
+    Removes duplicate tool calls.
     
-    Дедупликация происходит по двум критериям:
-    1. По id - если есть несколько tool calls с одинаковым id, оставляем тот у которого
-       больше аргументов (не пустой "{}")
-    2. По name+arguments - удаляем полные дубликаты
+    Deduplication occurs by two criteria:
+    1. By id - if there are multiple tool calls with the same id, keep the one with
+       more arguments (not empty "{}")
+    2. By name+arguments - remove complete duplicates
     
     Args:
-        tool_calls: Список tool calls
+        tool_calls: List of tool calls
     
     Returns:
-        Список уникальных tool calls
+        List of unique tool calls
     """
-    # Сначала дедупликация по id - оставляем tool call с непустыми аргументами
+    # First deduplicate by id - keep tool call with non-empty arguments
     by_id: Dict[str, Dict[str, Any]] = {}
     for tc in tool_calls:
         tc_id = tc.get("id", "")
         if not tc_id:
-            # Без id - добавляем как есть (будет дедуплицировано по name+args)
+            # Without id - add as is (will be deduplicated by name+args)
             continue
         
         existing = by_id.get(tc_id)
         if existing is None:
             by_id[tc_id] = tc
         else:
-            # Есть дубликат по id - оставляем тот у которого больше аргументов
+            # Duplicate by id exists - keep the one with more arguments
             existing_args = existing.get("function", {}).get("arguments", "{}")
             current_args = tc.get("function", {}).get("arguments", "{}")
             
-            # Предпочитаем непустые аргументы
+            # Prefer non-empty arguments
             if current_args != "{}" and (existing_args == "{}" or len(current_args) > len(existing_args)):
                 logger.debug(f"Replacing tool call {tc_id} with better arguments: {len(existing_args)} -> {len(current_args)}")
                 by_id[tc_id] = tc
     
-    # Собираем tool calls: сначала те что с id, потом без id
+    # Collect tool calls: first those with id, then without id
     result_with_id = list(by_id.values())
     result_without_id = [tc for tc in tool_calls if not tc.get("id")]
     
-    # Теперь дедупликация по name+arguments для всех
+    # Now deduplicate by name+arguments for all
     seen = set()
     unique = []
     
     for tc in result_with_id + result_without_id:
-        # Защита от None в function
+        # Protection against None in function
         func = tc.get("function") or {}
         func_name = func.get("name") or ""
         func_args = func.get("arguments") or "{}"
@@ -209,24 +210,24 @@ def deduplicate_tool_calls(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, A
 
 class AwsEventStreamParser:
     """
-    Парсер для AWS Event Stream формата.
+    Parser for AWS Event Stream format.
     
-    AWS возвращает события в бинарном формате с разделителями :message-type...event.
-    Этот класс извлекает JSON события из потока и преобразует их в удобный формат.
+    AWS returns events in binary format with :message-type...event delimiters.
+    This class extracts JSON events from the stream and converts them to a convenient format.
     
-    Поддерживаемые типы событий:
-    - content: Текстовый контент ответа
-    - tool_start: Начало tool call (name, toolUseId)
-    - tool_input: Продолжение input для tool call
-    - tool_stop: Завершение tool call
-    - usage: Информация о потреблении кредитов
-    - context_usage: Процент использования контекста
+    Supported event types:
+    - content: Text content of response
+    - tool_start: Start of tool call (name, toolUseId)
+    - tool_input: Continuation of input for tool call
+    - tool_stop: End of tool call
+    - usage: Credit consumption information
+    - context_usage: Context usage percentage
     
     Attributes:
-        buffer: Буфер для накопления данных
-        last_content: Последний обработанный контент (для дедупликации)
-        current_tool_call: Текущий незавершённый tool call
-        tool_calls: Список завершённых tool calls
+        buffer: Buffer for accumulating data
+        last_content: Last processed content (for deduplication)
+        current_tool_call: Current incomplete tool call
+        tool_calls: List of completed tool calls
     
     Example:
         >>> parser = AwsEventStreamParser()
@@ -236,7 +237,7 @@ class AwsEventStreamParser:
         ...         print(event["data"])
     """
     
-    # Паттерны для поиска JSON событий
+    # Patterns for finding JSON events
     EVENT_PATTERNS = [
         ('{"content":', 'content'),
         ('{"name":', 'tool_start'),
@@ -248,21 +249,21 @@ class AwsEventStreamParser:
     ]
     
     def __init__(self):
-        """Инициализирует парсер."""
+        """Initializes the parser."""
         self.buffer = ""
-        self.last_content: Optional[str] = None  # Для дедупликации повторяющегося контента
+        self.last_content: Optional[str] = None  # For deduplicating repeating content
         self.current_tool_call: Optional[Dict[str, Any]] = None
         self.tool_calls: List[Dict[str, Any]] = []
     
     def feed(self, chunk: bytes) -> List[Dict[str, Any]]:
         """
-        Добавляет chunk в буфер и возвращает распарсенные события.
+        Adds chunk to buffer and returns parsed events.
         
         Args:
-            chunk: Байты данных из потока
+            chunk: Bytes of data from stream
         
         Returns:
-            Список событий в формате {"type": str, "data": Any}
+            List of events in {"type": str, "data": Any} format
         """
         try:
             self.buffer += chunk.decode('utf-8', errors='ignore')
@@ -272,7 +273,7 @@ class AwsEventStreamParser:
         events = []
         
         while True:
-            # Находим ближайший паттерн
+            # Find nearest pattern
             earliest_pos = -1
             earliest_type = None
             
@@ -285,10 +286,10 @@ class AwsEventStreamParser:
             if earliest_pos == -1:
                 break
             
-            # Ищем конец JSON
+            # Find JSON end
             json_end = find_matching_brace(self.buffer, earliest_pos)
             if json_end == -1:
-                # JSON не полный, ждём больше данных
+                # JSON not complete, wait for more data
                 break
             
             json_str = self.buffer[earliest_pos:json_end + 1]
@@ -306,14 +307,14 @@ class AwsEventStreamParser:
     
     def _process_event(self, data: dict, event_type: str) -> Optional[Dict[str, Any]]:
         """
-        Обрабатывает распарсенное событие.
+        Processes a parsed event.
         
         Args:
-            data: Распарсенный JSON
-            event_type: Тип события
+            data: Parsed JSON
+            event_type: Event type
         
         Returns:
-            Обработанное событие или None
+            Processed event or None
         """
         if event_type == 'content':
             return self._process_content_event(data)
@@ -331,14 +332,14 @@ class AwsEventStreamParser:
         return None
     
     def _process_content_event(self, data: dict) -> Optional[Dict[str, Any]]:
-        """Обрабатывает событие с контентом."""
+        """Processes content event."""
         content = data.get('content', '')
         
-        # Пропускаем followupPrompt
+        # Skip followupPrompt
         if data.get('followupPrompt'):
             return None
         
-        # Дедупликация повторяющегося контента
+        # Deduplicate repeating content
         if content == self.last_content:
             return None
         
@@ -347,12 +348,12 @@ class AwsEventStreamParser:
         return {"type": "content", "data": content}
     
     def _process_tool_start_event(self, data: dict) -> Optional[Dict[str, Any]]:
-        """Обрабатывает начало tool call."""
-        # Завершаем предыдущий tool call если есть
+        """Processes tool call start."""
+        # Finalize previous tool call if exists
         if self.current_tool_call:
             self._finalize_tool_call()
         
-        # input может быть строкой или объектом
+        # input can be string or object
         input_data = data.get('input', '')
         if isinstance(input_data, dict):
             input_str = json.dumps(input_data)
@@ -374,9 +375,9 @@ class AwsEventStreamParser:
         return None
     
     def _process_tool_input_event(self, data: dict) -> Optional[Dict[str, Any]]:
-        """Обрабатывает продолжение input для tool call."""
+        """Processes input continuation for tool call."""
         if self.current_tool_call:
-            # input может быть строкой или объектом
+            # input can be string or object
             input_data = data.get('input', '')
             if isinstance(input_data, dict):
                 input_str = json.dumps(input_data)
@@ -386,17 +387,17 @@ class AwsEventStreamParser:
         return None
     
     def _process_tool_stop_event(self, data: dict) -> Optional[Dict[str, Any]]:
-        """Обрабатывает завершение tool call."""
+        """Processes tool call end."""
         if self.current_tool_call and data.get('stop'):
             self._finalize_tool_call()
         return None
     
     def _finalize_tool_call(self) -> None:
-        """Завершает текущий tool call и добавляет в список."""
+        """Finalizes current tool call and adds to list."""
         if not self.current_tool_call:
             return
         
-        # Пытаемся распарсить и нормализовать arguments как JSON
+        # Try to parse and normalize arguments as JSON
         args = self.current_tool_call['function']['arguments']
         tool_name = self.current_tool_call['function'].get('name', 'unknown')
         
@@ -406,24 +407,24 @@ class AwsEventStreamParser:
             if args.strip():
                 try:
                     parsed = json.loads(args)
-                    # Убеждаемся что результат - строка JSON
+                    # Ensure result is a JSON string
                     self.current_tool_call['function']['arguments'] = json.dumps(parsed)
                     logger.debug(f"Tool '{tool_name}' arguments parsed successfully: {list(parsed.keys()) if isinstance(parsed, dict) else type(parsed)}")
                 except json.JSONDecodeError as e:
-                    # Если не удалось распарсить, оставляем пустой объект
+                    # If parsing failed, use empty object
                     logger.warning(f"Failed to parse tool '{tool_name}' arguments: {e}. Raw: {args[:200]}")
                     self.current_tool_call['function']['arguments'] = "{}"
             else:
-                # Пустая строка - используем пустой объект
-                # Это нормальное поведение для дубликатов tool calls от Kiro
+                # Empty string - use empty object
+                # This is normal behavior for duplicate tool calls from Kiro
                 logger.debug(f"Tool '{tool_name}' has empty arguments string (will be deduplicated)")
                 self.current_tool_call['function']['arguments'] = "{}"
         elif isinstance(args, dict):
-            # Если уже объект - сериализуем в строку
+            # If already an object - serialize to string
             self.current_tool_call['function']['arguments'] = json.dumps(args)
             logger.debug(f"Tool '{tool_name}' arguments already dict with keys: {list(args.keys())}")
         else:
-            # Неизвестный тип - пустой объект
+            # Unknown type - empty object
             logger.warning(f"Tool '{tool_name}' has unexpected arguments type: {type(args)}")
             self.current_tool_call['function']['arguments'] = "{}"
         
@@ -432,20 +433,20 @@ class AwsEventStreamParser:
     
     def get_tool_calls(self) -> List[Dict[str, Any]]:
         """
-        Возвращает все собранные tool calls.
+        Returns all collected tool calls.
         
-        Завершает текущий tool call если он не завершён.
-        Удаляет дубликаты.
+        Finalizes current tool call if not finished.
+        Removes duplicates.
         
         Returns:
-            Список уникальных tool calls
+            List of unique tool calls
         """
         if self.current_tool_call:
             self._finalize_tool_call()
         return deduplicate_tool_calls(self.tool_calls)
     
     def reset(self) -> None:
-        """Сбрасывает состояние парсера."""
+        """Resets parser state."""
         self.buffer = ""
         self.last_content = None
         self.current_tool_call = None

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Kiro OpenAI Gateway
-# https://github.com/jwadow/kiro-openai-gateway
+# Kiro Gateway
+# https://github.com/jwadow/kiro-gateway
 # Copyright (C) 2025 Jwadow
 #
 # This program is free software: you can redistribute it and/or modify
@@ -201,21 +201,21 @@ DEFAULT_MAX_INPUT_TOKENS: int = 200000
 # Tool Description Handling (Kiro API Limitations)
 # ==================================================================================================
 
-# Kiro API возвращает ошибку 400 "Improperly formed request" при слишком длинных
-# описаниях инструментов в toolSpecification.description.
+# Kiro API returns 400 "Improperly formed request" error when tool descriptions
+# in toolSpecification.description are too long.
 #
-# Решение: Tool Documentation Reference Pattern
-# - Если description ≤ лимита → оставляем как есть
-# - Если description > лимита:
-#   * В toolSpecification.description → ссылка на system prompt:
+# Solution: Tool Documentation Reference Pattern
+# - If description ≤ limit → keep as is
+# - If description > limit:
+#   * In toolSpecification.description → reference to system prompt:
 #     "[Full documentation in system prompt under '## Tool: {name}']"
-#   * В system prompt добавляется секция "## Tool: {name}" с полным описанием
+#   * In system prompt, a section "## Tool: {name}" with full description is added
 #
-# Модель видит явную ссылку и точно понимает, где искать полную документацию.
+# The model sees an explicit reference and knows exactly where to find full documentation.
 
-# Максимальная длина description для tool в символах.
-# Описания длиннее этого лимита будут перенесены в system prompt.
-# Установите 0 для отключения (не рекомендуется - вызовет ошибки Kiro API).
+# Maximum length of tool description in characters.
+# Descriptions longer than this limit will be moved to system prompt.
+# Set to 0 to disable (not recommended - will cause Kiro API errors).
 TOOL_DESCRIPTION_MAX_LENGTH: int = int(os.getenv("TOOL_DESCRIPTION_MAX_LENGTH", "10000"))
 
 # ==================================================================================================

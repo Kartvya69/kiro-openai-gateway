@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Kiro OpenAI Gateway
+# Kiro Gateway
+# https://github.com/jwadow/kiro-gateway
 # Copyright (C) 2025 Jwadow
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,38 +18,38 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Kiro Gateway - OpenAI-совместимый прокси для Kiro API.
+Kiro Gateway - Proxy for Kiro API.
 
-Этот пакет предоставляет модульную архитектуру для проксирования
-запросов OpenAI API к Kiro (AWS CodeWhisperer).
+This package provides a modular architecture for proxying
+OpenAI API requests to Kiro (AWS CodeWhisperer).
 
-Модули:
-    - config: Конфигурация и константы
-    - models: Pydantic модели для OpenAI API
-    - auth: Менеджер аутентификации Kiro
-    - cache: Кэш метаданных моделей
-    - utils: Вспомогательные утилиты
-    - converters: Конвертация OpenAI <-> Kiro форматов
-    - parsers: Парсеры AWS SSE потоков
-    - streaming: Логика стриминга ответов
-    - http_client: HTTP клиент с retry логикой
-    - routes: FastAPI роуты
-    - exceptions: Обработчики исключений
+Modules:
+    - config: Configuration and constants
+    - models: Pydantic models for OpenAI API
+    - auth: Kiro authentication manager
+    - cache: Model metadata cache
+    - utils: Helper utilities
+    - converters: OpenAI <-> Kiro format conversion
+    - parsers: AWS SSE stream parsers
+    - streaming: Response streaming logic
+    - http_client: HTTP client with retry logic
+    - routes: FastAPI routes
+    - exceptions: Exception handlers
 """
 
-# Версия импортируется из config.py — единственного источника истины (Single Source of Truth)
-# Это позволяет менять версию только в одном месте
+# Version is imported from config.py — the single source of truth
+# This allows changing the version in only one place
 from kiro_gateway.config import APP_VERSION as __version__
 
 __author__ = "Jwadow"
 
-# Основные компоненты для удобного импорта
+# Main components for convenient import
 from kiro_gateway.auth import KiroAuthManager
 from kiro_gateway.cache import ModelInfoCache
 from kiro_gateway.http_client import KiroHttpClient
 from kiro_gateway.routes import router
 
-# Конфигурация
+# Configuration
 from kiro_gateway.config import (
     PROXY_API_KEY,
     REGION,
@@ -57,7 +58,7 @@ from kiro_gateway.config import (
     APP_VERSION,
 )
 
-# Модели
+# Models
 from kiro_gateway.models import (
     ChatCompletionRequest,
     ChatMessage,
@@ -65,14 +66,14 @@ from kiro_gateway.models import (
     ModelList,
 )
 
-# Конвертеры
+# Converters
 from kiro_gateway.converters import (
     build_kiro_payload,
     extract_text_content,
     merge_adjacent_messages,
 )
 
-# Парсеры
+# Parsers
 from kiro_gateway.parsers import (
     AwsEventStreamParser,
     parse_bracket_tool_calls,
@@ -91,34 +92,34 @@ from kiro_gateway.exceptions import (
 )
 
 __all__ = [
-    # Версия
+    # Version
     "__version__",
     
-    # Основные классы
+    # Main classes
     "KiroAuthManager",
     "ModelInfoCache",
     "KiroHttpClient",
     "router",
     
-    # Конфигурация
+    # Configuration
     "PROXY_API_KEY",
     "REGION",
     "MODEL_MAPPING",
     "AVAILABLE_MODELS",
     "APP_VERSION",
     
-    # Модели
+    # Models
     "ChatCompletionRequest",
     "ChatMessage",
     "OpenAIModel",
     "ModelList",
     
-    # Конвертеры
+    # Converters
     "build_kiro_payload",
     "extract_text_content",
     "merge_adjacent_messages",
     
-    # Парсеры
+    # Parsers
     "AwsEventStreamParser",
     "parse_bracket_tool_calls",
     

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Kiro OpenAI Gateway
+# Kiro Gateway
+# https://github.com/jwadow/kiro-gateway
 # Copyright (C) 2025 Jwadow
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,10 +18,10 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Обработчики исключений для Kiro Gateway.
+Exception handlers for Kiro Gateway.
 
-Содержит функции для обработки ошибок валидации и других исключений
-в формате, совместимом с JSON-сериализацией.
+Contains functions for handling validation errors and other exceptions
+in a JSON-serialization compatible format.
 """
 
 from typing import Any, List, Dict
@@ -33,26 +34,26 @@ from loguru import logger
 
 def sanitize_validation_errors(errors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Преобразует ошибки валидации в JSON-сериализуемый формат.
+    Converts validation errors to JSON-serializable format.
     
-    Pydantic может включать bytes объекты в поле 'input', которые
-    не сериализуются в JSON. Эта функция конвертирует их в строки.
+    Pydantic may include bytes objects in the 'input' field, which
+    are not JSON-serializable. This function converts them to strings.
     
     Args:
-        errors: Список ошибок валидации от Pydantic
+        errors: List of validation errors from Pydantic
     
     Returns:
-        Список ошибок с bytes преобразованными в строки
+        List of errors with bytes converted to strings
     """
     sanitized = []
     for error in errors:
         sanitized_error = {}
         for key, value in error.items():
             if isinstance(value, bytes):
-                # Конвертируем bytes в строку
+                # Convert bytes to string
                 sanitized_error[key] = value.decode("utf-8", errors="replace")
             elif isinstance(value, (list, tuple)):
-                # Рекурсивно обрабатываем списки
+                # Recursively process lists
                 sanitized_error[key] = [
                     v.decode("utf-8", errors="replace") if isinstance(v, bytes) else v
                     for v in value
@@ -65,22 +66,22 @@ def sanitize_validation_errors(errors: List[Dict[str, Any]]) -> List[Dict[str, A
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     """
-    Обработчик ошибок валидации Pydantic.
+    Pydantic validation error handler.
     
-    Логирует детали ошибки и возвращает информативный ответ.
-    Корректно обрабатывает bytes объекты в ошибках, преобразуя их в строки.
+    Logs error details and returns an informative response.
+    Correctly handles bytes objects in errors by converting them to strings.
     
     Args:
-        request: FastAPI Request объект
-        exc: Исключение валидации от Pydantic
+        request: FastAPI Request object
+        exc: Validation exception from Pydantic
     
     Returns:
-        JSONResponse с деталями ошибки и статусом 422
+        JSONResponse with error details and status 422
     """
     body = await request.body()
     body_str = body.decode("utf-8", errors="replace")
     
-    # Санитизируем ошибки для JSON-сериализации
+    # Sanitize errors for JSON serialization
     sanitized_errors = sanitize_validation_errors(exc.errors())
     
     logger.error(f"Validation error (422): {sanitized_errors}")

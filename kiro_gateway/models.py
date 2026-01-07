@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Kiro OpenAI Gateway
+# Kiro Gateway
+# https://github.com/jwadow/kiro-gateway
 # Copyright (C) 2025 Jwadow
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,10 +18,10 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Pydantic модели для OpenAI-совместимого API.
+Pydantic models for OpenAI-compatible API.
 
-Определяет схемы данных для запросов и ответов,
-обеспечивая валидацию и сериализацию.
+Defines data schemas for requests and responses,
+providing validation and serialization.
 """
 
 import time
@@ -30,14 +31,14 @@ from pydantic import BaseModel, Field
 
 
 # ==================================================================================================
-# Модели для /v1/models endpoint
+# Models for /v1/models endpoint
 # ==================================================================================================
 
 class OpenAIModel(BaseModel):
     """
-    Модель данных для описания AI модели в формате OpenAI.
+    Data model for describing an AI model in OpenAI format.
     
-    Используется в ответе эндпоинта /v1/models.
+    Used in the /v1/models endpoint response.
     """
     id: str
     object: str = "model"
@@ -48,31 +49,31 @@ class OpenAIModel(BaseModel):
 
 class ModelList(BaseModel):
     """
-    Список моделей в формате OpenAI.
+    List of models in OpenAI format.
     
-    Ответ эндпоинта GET /v1/models.
+    Response of GET /v1/models endpoint.
     """
     object: str = "list"
     data: List[OpenAIModel]
 
 
 # ==================================================================================================
-# Модели для /v1/chat/completions endpoint
+# Models for /v1/chat/completions endpoint
 # ==================================================================================================
 
 class ChatMessage(BaseModel):
     """
-    Сообщение в чате в формате OpenAI.
+    Chat message in OpenAI format.
     
-    Поддерживает различные роли (user, assistant, system, tool)
-    и различные форматы контента (строка, список, объект).
+    Supports various roles (user, assistant, system, tool)
+    and various content formats (string, list, object).
     
     Attributes:
-        role: Роль отправителя (user, assistant, system, tool)
-        content: Содержимое сообщения (может быть строкой, списком или None)
-        name: Опциональное имя отправителя
-        tool_calls: Список вызовов инструментов (для assistant)
-        tool_call_id: ID вызова инструмента (для tool)
+        role: Sender role (user, assistant, system, tool)
+        content: Message content (can be string, list, or None)
+        name: Optional sender name
+        tool_calls: List of tool calls (for assistant)
+        tool_call_id: Tool call ID (for tool)
     """
     role: str
     content: Optional[Union[str, List[Any], Any]] = None
@@ -85,12 +86,12 @@ class ChatMessage(BaseModel):
 
 class ToolFunction(BaseModel):
     """
-    Описание функции инструмента.
+    Tool function description.
     
     Attributes:
-        name: Имя функции
-        description: Описание функции
-        parameters: JSON Schema параметров функции
+        name: Function name
+        description: Function description
+        parameters: JSON Schema of function parameters
     """
     name: str
     description: Optional[str] = None
@@ -99,11 +100,11 @@ class ToolFunction(BaseModel):
 
 class Tool(BaseModel):
     """
-    Инструмент (tool) в формате OpenAI.
+    Tool in OpenAI format.
     
     Attributes:
-        type: Тип инструмента (обычно "function")
-        function: Описание функции
+        type: Tool type (usually "function")
+        function: Function description
     """
     type: str = "function"
     function: ToolFunction
@@ -111,34 +112,34 @@ class Tool(BaseModel):
 
 class ChatCompletionRequest(BaseModel):
     """
-    Запрос на генерацию ответа в формате OpenAI Chat Completions API.
+    Request for response generation in OpenAI Chat Completions API format.
     
-    Поддерживает все стандартные поля OpenAI API, включая:
-    - Базовые параметры (model, messages, stream)
-    - Параметры генерации (temperature, top_p, max_tokens)
+    Supports all standard OpenAI API fields, including:
+    - Basic parameters (model, messages, stream)
+    - Generation parameters (temperature, top_p, max_tokens)
     - Tools (function calling)
-    - Дополнительные параметры (игнорируются, но принимаются для совместимости)
+    - Additional parameters (ignored but accepted for compatibility)
     
     Attributes:
-        model: ID модели для генерации
-        messages: Список сообщений чата
-        stream: Использовать streaming (по умолчанию False)
-        temperature: Температура генерации (0-2)
+        model: Model ID for generation
+        messages: List of chat messages
+        stream: Use streaming (default False)
+        temperature: Generation temperature (0-2)
         top_p: Top-p sampling
-        n: Количество вариантов ответа
-        max_tokens: Максимальное количество токенов в ответе
-        max_completion_tokens: Альтернативное поле для max_tokens
-        stop: Стоп-последовательности
-        presence_penalty: Штраф за повторение тем
-        frequency_penalty: Штраф за повторение слов
-        tools: Список доступных инструментов
-        tool_choice: Стратегия выбора инструмента
+        n: Number of response variants
+        max_tokens: Maximum number of tokens in response
+        max_completion_tokens: Alternative field for max_tokens
+        stop: Stop sequences
+        presence_penalty: Penalty for topic repetition
+        frequency_penalty: Penalty for word repetition
+        tools: List of available tools
+        tool_choice: Tool selection strategy
     """
     model: str
     messages: Annotated[List[ChatMessage], Field(min_length=1)]
     stream: bool = False
     
-    # Параметры генерации
+    # Generation parameters
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     n: Optional[int] = 1
@@ -152,7 +153,7 @@ class ChatCompletionRequest(BaseModel):
     tools: Optional[List[Tool]] = None
     tool_choice: Optional[Union[str, Dict]] = None
     
-    # Поля для совместимости (игнорируются)
+    # Compatibility fields (ignored)
     stream_options: Optional[Dict[str, Any]] = None
     logit_bias: Optional[Dict[str, float]] = None
     logprobs: Optional[bool] = None
@@ -165,17 +166,17 @@ class ChatCompletionRequest(BaseModel):
 
 
 # ==================================================================================================
-# Модели для ответов
+# Models for responses
 # ==================================================================================================
 
 class ChatCompletionChoice(BaseModel):
     """
-    Один вариант ответа в Chat Completion.
+    Single response variant in Chat Completion.
     
     Attributes:
-        index: Индекс варианта
-        message: Сообщение ответа
-        finish_reason: Причина завершения (stop, tool_calls, length)
+        index: Variant index
+        message: Response message
+        finish_reason: Completion reason (stop, tool_calls, length)
     """
     index: int = 0
     message: Dict[str, Any]
@@ -184,13 +185,13 @@ class ChatCompletionChoice(BaseModel):
 
 class ChatCompletionUsage(BaseModel):
     """
-    Информация об использовании токенов.
+    Token usage information.
     
     Attributes:
-        prompt_tokens: Количество токенов в запросе
-        completion_tokens: Количество токенов в ответе
-        total_tokens: Общее количество токенов
-        credits_used: Использованные кредиты (специфично для Kiro)
+        prompt_tokens: Number of tokens in request
+        completion_tokens: Number of tokens in response
+        total_tokens: Total number of tokens
+        credits_used: Credits used (Kiro-specific)
     """
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -200,15 +201,15 @@ class ChatCompletionUsage(BaseModel):
 
 class ChatCompletionResponse(BaseModel):
     """
-    Полный ответ Chat Completion (non-streaming).
+    Full Chat Completion response (non-streaming).
     
     Attributes:
-        id: Уникальный ID ответа
-        object: Тип объекта ("chat.completion")
-        created: Timestamp создания
-        model: Использованная модель
-        choices: Список вариантов ответа
-        usage: Информация об использовании токенов
+        id: Unique response ID
+        object: Object type ("chat.completion")
+        created: Creation timestamp
+        model: Model used
+        choices: List of response variants
+        usage: Token usage information
     """
     id: str
     object: str = "chat.completion"
@@ -220,12 +221,12 @@ class ChatCompletionResponse(BaseModel):
 
 class ChatCompletionChunkDelta(BaseModel):
     """
-    Дельта изменений в streaming chunk.
+    Delta of changes in streaming chunk.
     
     Attributes:
-        role: Роль (только в первом chunk)
-        content: Новый контент
-        tool_calls: Новые tool calls
+        role: Role (only in first chunk)
+        content: New content
+        tool_calls: New tool calls
     """
     role: Optional[str] = None
     content: Optional[str] = None
@@ -234,12 +235,12 @@ class ChatCompletionChunkDelta(BaseModel):
 
 class ChatCompletionChunkChoice(BaseModel):
     """
-    Один вариант в streaming chunk.
+    Single variant in streaming chunk.
     
     Attributes:
-        index: Индекс варианта
-        delta: Дельта изменений
-        finish_reason: Причина завершения (только в последнем chunk)
+        index: Variant index
+        delta: Delta of changes
+        finish_reason: Completion reason (only in last chunk)
     """
     index: int = 0
     delta: ChatCompletionChunkDelta
@@ -248,15 +249,15 @@ class ChatCompletionChunkChoice(BaseModel):
 
 class ChatCompletionChunk(BaseModel):
     """
-    Streaming chunk в формате OpenAI.
+    Streaming chunk in OpenAI format.
     
     Attributes:
-        id: Уникальный ID ответа
-        object: Тип объекта ("chat.completion.chunk")
-        created: Timestamp создания
-        model: Использованная модель
-        choices: Список вариантов
-        usage: Информация об использовании (только в последнем chunk)
+        id: Unique response ID
+        object: Object type ("chat.completion.chunk")
+        created: Creation timestamp
+        model: Model used
+        choices: List of variants
+        usage: Usage information (only in last chunk)
     """
     id: str
     object: str = "chat.completion.chunk"

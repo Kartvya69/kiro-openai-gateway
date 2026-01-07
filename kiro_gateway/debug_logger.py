@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Kiro OpenAI Gateway
+# Kiro Gateway
+# https://github.com/jwadow/kiro-gateway
 # Copyright (C) 2025 Jwadow
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,18 +18,18 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Модуль для отладочного логирования запросов.
+Debug logging module for requests.
 
-Поддерживает три режима (DEBUG_MODE):
-- off: логирование отключено
-- errors: логи сохраняются только при ошибках (4xx, 5xx)
-- all: логи перезаписываются на каждый запрос
+Supports three modes (DEBUG_MODE):
+- off: logging disabled
+- errors: logs are saved only on errors (4xx, 5xx)
+- all: logs are overwritten on each request
 
-В режиме "errors" данные буферизуются в памяти и сбрасываются в файлы
-только при вызове flush_on_error().
+In "errors" mode, data is buffered in memory and flushed to files
+only when flush_on_error() is called.
 
-Также захватывает логи приложения (loguru) для каждого запроса и сохраняет
-их в файл app_logs.txt для удобства отладки.
+Also captures application logs (loguru) for each request and saves
+them to app_logs.txt file for debugging convenience.
 """
 
 import io
@@ -43,12 +44,12 @@ from kiro_gateway.config import DEBUG_MODE, DEBUG_DIR
 
 class DebugLogger:
     """
-    Синглтон для управления отладочными логами запросов.
+    Singleton for managing debug request logs.
     
-    Режимы работы:
-    - off: ничего не делает
-    - errors: буферизует данные, сбрасывает в файлы только при ошибках
-    - all: пишет данные сразу в файлы (как раньше)
+    Operating modes:
+    - off: does nothing
+    - errors: buffers data, flushes to files only on errors
+    - all: writes data immediately to files (as before)
     """
     _instance = None
 
@@ -64,26 +65,26 @@ class DebugLogger:
         self.debug_dir = Path(DEBUG_DIR)
         self._initialized = True
         
-        # Буферы для режима "errors"
+        # Buffers for "errors" mode
         self._request_body_buffer: Optional[bytes] = None
         self._kiro_request_body_buffer: Optional[bytes] = None
         self._raw_chunks_buffer: bytearray = bytearray()
         self._modified_chunks_buffer: bytearray = bytearray()
         
-        # Буфер для логов приложения (loguru)
+        # Buffer for application logs (loguru)
         self._app_logs_buffer: io.StringIO = io.StringIO()
         self._loguru_sink_id: Optional[int] = None
     
     def _is_enabled(self) -> bool:
-        """Проверяет, включено ли логирование."""
+        """Checks if logging is enabled."""
         return DEBUG_MODE in ("errors", "all")
     
     def _is_immediate_write(self) -> bool:
-        """Проверяет, нужно ли писать сразу в файлы (режим all)."""
+        """Checks if immediate file writing is needed (all mode)."""
         return DEBUG_MODE == "all"
     
     def _clear_buffers(self):
-        """Очищает все буферы."""
+        """Clears all buffers."""
         self._request_body_buffer = None
         self._kiro_request_body_buffer = None
         self._raw_chunks_buffer.clear()
@@ -91,59 +92,59 @@ class DebugLogger:
         self._clear_app_logs_buffer()
     
     def _clear_app_logs_buffer(self):
-        """Очищает буфер логов приложения и удаляет sink."""
-        # Удаляем sink из loguru
+        """Clears the application logs buffer and removes sink."""
+        # Remove sink from loguru
         if self._loguru_sink_id is not None:
             try:
                 logger.remove(self._loguru_sink_id)
             except ValueError:
-                # Sink уже удалён
+                # Sink already removed
                 pass
             self._loguru_sink_id = None
         
-        # Очищаем буфер
+        # Clear buffer
         self._app_logs_buffer = io.StringIO()
     
     def _setup_app_logs_capture(self):
         """
-        Настраивает захват логов приложения в буфер.
+        Sets up application log capture to buffer.
         
-        Добавляет временный sink в loguru, который пишет в StringIO буфер.
-        Захватывает ВСЕ логи без фильтрации, так как sink активен только
-        на время обработки конкретного запроса.
+        Adds a temporary sink to loguru that writes to StringIO buffer.
+        Captures ALL logs without filtering, as sink is active only
+        during processing of a specific request.
         """
-        # Удаляем предыдущий sink если есть
+        # Remove previous sink if exists
         self._clear_app_logs_buffer()
         
-        # Добавляем новый sink для захвата ВСЕХ логов
-        # Формат: время | уровень | модуль:функция:строка | сообщение
+        # Add new sink to capture ALL logs
+        # Format: time | level | module:function:line | message
         self._loguru_sink_id = logger.add(
             self._app_logs_buffer,
             format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
-            level="DEBUG",  # Захватываем все уровни от DEBUG и выше
-            colorize=False,  # Без ANSI цветов в файле
-            # Без фильтра - захватываем ВСЕ логи во время обработки запроса
+            level="DEBUG",  # Capture all levels from DEBUG and above
+            colorize=False,  # No ANSI colors in file
+            # No filter - capture ALL logs during request processing
         )
 
     def prepare_new_request(self):
         """
-        Подготавливает логгер для нового запроса.
+        Prepares the logger for a new request.
         
-        В режиме "all": очищает папку с логами.
-        В режиме "errors": очищает буферы.
-        В обоих режимах: настраивает захват логов приложения.
+        In "all" mode: clears the logs folder.
+        In "errors" mode: clears buffers.
+        In both modes: sets up application log capture.
         """
         if not self._is_enabled():
             return
         
-        # Очищаем буферы в любом случае
+        # Clear buffers in any case
         self._clear_buffers()
         
-        # Настраиваем захват логов приложения
+        # Set up application log capture
         self._setup_app_logs_capture()
 
         if self._is_immediate_write():
-            # Режим "all" - очищаем папку и создаём заново
+            # "all" mode - clear folder and recreate
             try:
                 if self.debug_dir.exists():
                     shutil.rmtree(self.debug_dir)
@@ -154,10 +155,10 @@ class DebugLogger:
 
     def log_request_body(self, body: bytes):
         """
-        Сохраняет тело запроса (от клиента, OpenAI формат).
+        Saves the request body (from client, OpenAI format).
         
-        В режиме "all": пишет сразу в файл.
-        В режиме "errors": буферизует.
+        In "all" mode: writes immediately to file.
+        In "errors" mode: buffers.
         """
         if not self._is_enabled():
             return
@@ -165,15 +166,15 @@ class DebugLogger:
         if self._is_immediate_write():
             self._write_request_body_to_file(body)
         else:
-            # Режим "errors" - буферизуем
+            # "errors" mode - buffer
             self._request_body_buffer = body
 
     def log_kiro_request_body(self, body: bytes):
         """
-        Сохраняет модифицированное тело запроса (к Kiro API).
+        Saves the modified request body (to Kiro API).
         
-        В режиме "all": пишет сразу в файл.
-        В режиме "errors": буферизует.
+        In "all" mode: writes immediately to file.
+        In "errors" mode: buffers.
         """
         if not self._is_enabled():
             return
@@ -181,15 +182,15 @@ class DebugLogger:
         if self._is_immediate_write():
             self._write_kiro_request_body_to_file(body)
         else:
-            # Режим "errors" - буферизуем
+            # "errors" mode - buffer
             self._kiro_request_body_buffer = body
 
     def log_raw_chunk(self, chunk: bytes):
         """
-        Дописывает сырой чанк ответа (от провайдера).
+        Appends raw response chunk (from provider).
         
-        В режиме "all": пишет сразу в файл.
-        В режиме "errors": буферизует.
+        In "all" mode: writes immediately to file.
+        In "errors" mode: buffers.
         """
         if not self._is_enabled():
             return
@@ -197,15 +198,15 @@ class DebugLogger:
         if self._is_immediate_write():
             self._append_raw_chunk_to_file(chunk)
         else:
-            # Режим "errors" - буферизуем
+            # "errors" mode - buffer
             self._raw_chunks_buffer.extend(chunk)
 
     def log_modified_chunk(self, chunk: bytes):
         """
-        Дописывает модифицированный чанк (клиенту).
+        Appends modified chunk (to client).
         
-        В режиме "all": пишет сразу в файл.
-        В режиме "errors": буферизует.
+        In "all" mode: writes immediately to file.
+        In "errors" mode: buffers.
         """
         if not self._is_enabled():
             return
@@ -213,26 +214,26 @@ class DebugLogger:
         if self._is_immediate_write():
             self._append_modified_chunk_to_file(chunk)
         else:
-            # Режим "errors" - буферизуем
+            # "errors" mode - buffer
             self._modified_chunks_buffer.extend(chunk)
     
     def log_error_info(self, status_code: int, error_message: str = ""):
         """
-        Записывает информацию об ошибке в файл.
+        Writes error information to file.
         
-        Работает в обоих режимах (errors и all).
-        В режиме "all" записывает сразу в файл.
-        В режиме "errors" вызывается из flush_on_error().
+        Works in both modes (errors and all).
+        In "all" mode writes immediately to file.
+        In "errors" mode called from flush_on_error().
         
         Args:
-            status_code: HTTP статус код ошибки
-            error_message: Сообщение об ошибке (опционально)
+            status_code: HTTP error status code
+            error_message: Error message (optional)
         """
         if not self._is_enabled():
             return
         
         try:
-            # Убеждаемся что директория существует
+            # Ensure directory exists
             self.debug_dir.mkdir(parents=True, exist_ok=True)
             
             error_info = {
@@ -249,26 +250,26 @@ class DebugLogger:
 
     def flush_on_error(self, status_code: int, error_message: str = ""):
         """
-        Сбрасывает буферы в файлы при ошибке.
+        Flushes buffers to files on error.
         
-        В режиме "errors": сбрасывает буферы и сохраняет error_info.
-        В режиме "all": только сохраняет error_info (данные уже записаны).
+        In "errors" mode: flushes buffers and saves error_info.
+        In "all" mode: only saves error_info (data already written).
         
         Args:
-            status_code: HTTP статус код ошибки
-            error_message: Сообщение об ошибке (опционально)
+            status_code: HTTP error status code
+            error_message: Error message (optional)
         """
         if not self._is_enabled():
             return
         
-        # В режиме "all" данные уже записаны, добавляем error_info и логи приложения
+        # In "all" mode data is already written, add error_info and app logs
         if self._is_immediate_write():
             self.log_error_info(status_code, error_message)
             self._write_app_logs_to_file()
             self._clear_app_logs_buffer()
             return
         
-        # Проверяем, есть ли что сбрасывать
+        # Check if there's anything to flush
         if not any([
             self._request_body_buffer,
             self._kiro_request_body_buffer,
@@ -278,12 +279,12 @@ class DebugLogger:
             return
         
         try:
-            # Создаём директорию если не существует
+            # Create directory if not exists
             if self.debug_dir.exists():
                 shutil.rmtree(self.debug_dir)
             self.debug_dir.mkdir(parents=True, exist_ok=True)
             
-            # Сбрасываем буферы в файлы
+            # Flush buffers to files
             if self._request_body_buffer:
                 self._write_request_body_to_file(self._request_body_buffer)
             
@@ -300,10 +301,10 @@ class DebugLogger:
                 with open(file_path, "wb") as f:
                     f.write(self._modified_chunks_buffer)
             
-            # Сохраняем информацию об ошибке
+            # Save error information
             self.log_error_info(status_code, error_message)
             
-            # Сохраняем логи приложения
+            # Save application logs
             self._write_app_logs_to_file()
             
             logger.info(f"[DebugLogger] Error logs flushed to {self.debug_dir} (status={status_code})")
@@ -311,27 +312,27 @@ class DebugLogger:
         except Exception as e:
             logger.error(f"[DebugLogger] Error flushing buffers: {e}")
         finally:
-            # Очищаем буферы после сброса
+            # Clear buffers after flush
             self._clear_buffers()
     
     def discard_buffers(self):
         """
-        Очищает буферы без записи в файлы.
+        Clears buffers without writing to files.
         
-        Вызывается когда запрос завершился успешно в режиме "errors".
-        Также вызывается в режиме "all" для сохранения логов успешного запроса.
+        Called when request completed successfully in "errors" mode.
+        Also called in "all" mode to save logs of successful request.
         """
         if DEBUG_MODE == "errors":
             self._clear_buffers()
         elif DEBUG_MODE == "all":
-            # В режиме "all" сохраняем логи даже для успешных запросов
+            # In "all" mode save logs even for successful requests
             self._write_app_logs_to_file()
             self._clear_app_logs_buffer()
     
-    # ==================== Приватные методы записи в файлы ====================
+    # ==================== Private file writing methods ====================
     
     def _write_request_body_to_file(self, body: bytes):
-        """Записывает тело запроса в файл."""
+        """Writes request body to file."""
         try:
             file_path = self.debug_dir / "request_body.json"
             try:
@@ -345,7 +346,7 @@ class DebugLogger:
             logger.error(f"[DebugLogger] Error writing request_body: {e}")
     
     def _write_kiro_request_body_to_file(self, body: bytes):
-        """Записывает тело запроса к Kiro в файл."""
+        """Writes Kiro request body to file."""
         try:
             file_path = self.debug_dir / "kiro_request_body.json"
             try:
@@ -359,7 +360,7 @@ class DebugLogger:
             logger.error(f"[DebugLogger] Error writing kiro_request_body: {e}")
     
     def _append_raw_chunk_to_file(self, chunk: bytes):
-        """Дописывает сырой чанк в файл."""
+        """Appends raw chunk to file."""
         try:
             file_path = self.debug_dir / "response_stream_raw.txt"
             with open(file_path, "ab") as f:
@@ -368,7 +369,7 @@ class DebugLogger:
             pass
     
     def _append_modified_chunk_to_file(self, chunk: bytes):
-        """Дописывает модифицированный чанк в файл."""
+        """Appends modified chunk to file."""
         try:
             file_path = self.debug_dir / "response_stream_modified.txt"
             with open(file_path, "ab") as f:
@@ -377,15 +378,15 @@ class DebugLogger:
             pass
     
     def _write_app_logs_to_file(self):
-        """Записывает захваченные логи приложения в файл."""
+        """Writes captured application logs to file."""
         try:
-            # Получаем содержимое буфера
+            # Get buffer contents
             logs_content = self._app_logs_buffer.getvalue()
             
             if not logs_content.strip():
                 return
             
-            # Убеждаемся что директория существует
+            # Ensure directory exists
             self.debug_dir.mkdir(parents=True, exist_ok=True)
             
             file_path = self.debug_dir / "app_logs.txt"
@@ -394,9 +395,9 @@ class DebugLogger:
             
             logger.debug(f"[DebugLogger] App logs saved to {file_path}")
         except Exception as e:
-            # Не логируем ошибку через logger чтобы избежать рекурсии
+            # Don't log error via logger to avoid recursion
             pass
 
 
-# Глобальный экземпляр
+# Global instance
 debug_logger = DebugLogger()

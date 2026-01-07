@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
-# Kiro OpenAI Gateway
+# Kiro Gateway
+# https://github.com/jwadow/kiro-gateway
 # Copyright (C) 2025 Jwadow
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,41 +18,41 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Модуль для быстрого подсчёта токенов.
+Module for fast token counting.
 
-Использует tiktoken (библиотека OpenAI на Rust) для приблизительного
-подсчёта токенов. Кодировка cl100k_base близка к токенизации Claude.
+Uses tiktoken (OpenAI's Rust library) for approximate
+token counting. The cl100k_base encoding is close to Claude tokenization.
 
-Примечание: Это приблизительный подсчёт, так как точный токенизатор
-Claude не является публичным. Anthropic не публикует свой токенизатор,
-поэтому используется tiktoken с коэффициентом коррекции.
+Note: This is an approximate count, as the exact Claude tokenizer
+is not public. Anthropic does not publish their tokenizer,
+so tiktoken with a correction coefficient is used.
 
-Коэффициент коррекции CLAUDE_CORRECTION_FACTOR = 1.15 основан на
-эмпирических наблюдениях: Claude токенизирует текст примерно на 15%
-больше чем GPT-4 (cl100k_base). Это связано с различиями в BPE словарях.
+The correction coefficient CLAUDE_CORRECTION_FACTOR = 1.15 is based on
+empirical observations: Claude tokenizes text approximately 15%
+more than GPT-4 (cl100k_base). This is due to differences in BPE vocabularies.
 """
 
 from typing import List, Dict, Any, Optional
 from loguru import logger
 
-# Ленивая загрузка tiktoken для ускорения импорта
+# Lazy loading of tiktoken to speed up import
 _encoding = None
 
-# Коэффициент коррекции для Claude моделей
-# Claude токенизирует текст примерно на 15% больше чем GPT-4 (cl100k_base)
-# Это эмпирическое значение, основанное на сравнении с context_usage от API
+# Correction coefficient for Claude models
+# Claude tokenizes text approximately 15% more than GPT-4 (cl100k_base)
+# This is an empirical value based on comparison with context_usage from API
 CLAUDE_CORRECTION_FACTOR = 1.15
 
 
 def _get_encoding():
     """
-    Ленивая инициализация токенизатора.
+    Lazy initialization of tokenizer.
     
-    Использует cl100k_base - кодировку для GPT-4/ChatGPT,
-    которая достаточно близка к токенизации Claude.
+    Uses cl100k_base - encoding for GPT-4/ChatGPT,
+    which is close enough to Claude tokenization.
     
     Returns:
-        tiktoken.Encoding или None если tiktoken недоступен
+        tiktoken.Encoding or None if tiktoken is unavailable
     """
     global _encoding
     if _encoding is None:
@@ -65,7 +66,7 @@ def _get_encoding():
                 "Token counting will use fallback estimation. "
                 "Install with: pip install tiktoken"
             )
-            _encoding = False  # Маркер что импорт не удался
+            _encoding = False  # Marker that import failed
         except Exception as e:
             logger.error(f"[Tokenizer] Failed to initialize tiktoken: {e}")
             _encoding = False
@@ -74,14 +75,14 @@ def _get_encoding():
 
 def count_tokens(text: str, apply_claude_correction: bool = True) -> int:
     """
-    Подсчитывает количество токенов в тексте.
+    Counts the number of tokens in text.
     
     Args:
-        text: Текст для подсчёта токенов
-        apply_claude_correction: Применять коэффициент коррекции для Claude (по умолчанию True)
+        text: Text to count tokens for
+        apply_claude_correction: Apply correction coefficient for Claude (default True)
     
     Returns:
-        Количество токенов (приблизительное, с коррекцией для Claude)
+        Number of tokens (approximate, with Claude correction)
     """
     if not text:
         return 0
@@ -96,9 +97,9 @@ def count_tokens(text: str, apply_claude_correction: bool = True) -> int:
         except Exception as e:
             logger.warning(f"[Tokenizer] Error encoding text: {e}")
     
-    # Fallback: грубая оценка ~4 символа на токен для английского,
-    # ~2-3 символа для других языков (берём среднее ~3.5)
-    # Для Claude добавляем коррекцию
+    # Fallback: rough estimate ~4 characters per token for English,
+    # ~2-3 characters for other languages (taking average ~3.5)
+    # For Claude we add correction
     base_estimate = len(text) // 4 + 1
     if apply_claude_correction:
         return int(base_estimate * CLAUDE_CORRECTION_FACTOR)
@@ -107,19 +108,19 @@ def count_tokens(text: str, apply_claude_correction: bool = True) -> int:
 
 def count_message_tokens(messages: List[Dict[str, Any]], apply_claude_correction: bool = True) -> int:
     """
-    Подсчитывает токены в списке сообщений чата.
+    Counts tokens in a list of chat messages.
     
-    Учитывает структуру сообщений OpenAI/Claude:
-    - role: ~1 токен
-    - content: токены текста
-    - Служебные токены между сообщениями: ~3-4 токена
+    Accounts for OpenAI/Claude message structure:
+    - role: ~1 token
+    - content: text tokens
+    - Service tokens between messages: ~3-4 tokens
     
     Args:
-        messages: Список сообщений в формате OpenAI
-        apply_claude_correction: Применять коэффициент коррекции для Claude
+        messages: List of messages in OpenAI format
+        apply_claude_correction: Apply correction coefficient for Claude
     
     Returns:
-        Приблизительное количество токенов (с коррекцией для Claude)
+        Approximate number of tokens (with Claude correction)
     """
     if not messages:
         return 0
@@ -127,45 +128,45 @@ def count_message_tokens(messages: List[Dict[str, Any]], apply_claude_correction
     total_tokens = 0
     
     for message in messages:
-        # Базовые токены на сообщение (role, разделители)
-        total_tokens += 4  # ~4 токена на служебную информацию
+        # Base tokens per message (role, delimiters)
+        total_tokens += 4  # ~4 tokens for service information
         
-        # Токены роли (без коррекции, это короткие строки)
+        # Role tokens (without correction, these are short strings)
         role = message.get("role", "")
         total_tokens += count_tokens(role, apply_claude_correction=False)
         
-        # Токены контента
+        # Content tokens
         content = message.get("content")
         if content:
             if isinstance(content, str):
                 total_tokens += count_tokens(content, apply_claude_correction=False)
             elif isinstance(content, list):
-                # Мультимодальный контент (текст + изображения)
+                # Multimodal content (text + images)
                 for item in content:
                     if isinstance(item, dict):
                         if item.get("type") == "text":
                             total_tokens += count_tokens(item.get("text", ""), apply_claude_correction=False)
                         elif item.get("type") == "image_url":
-                            # Изображения занимают ~85-170 токенов в зависимости от размера
-                            total_tokens += 100  # Средняя оценка
+                            # Images take ~85-170 tokens depending on size
+                            total_tokens += 100  # Average estimate
         
-        # Токены tool_calls (если есть)
+        # tool_calls tokens (if present)
         tool_calls = message.get("tool_calls")
         if tool_calls:
             for tc in tool_calls:
-                total_tokens += 4  # Служебные токены
+                total_tokens += 4  # Service tokens
                 func = tc.get("function", {})
                 total_tokens += count_tokens(func.get("name", ""), apply_claude_correction=False)
                 total_tokens += count_tokens(func.get("arguments", ""), apply_claude_correction=False)
         
-        # Токены tool_call_id (для ответов от инструментов)
+        # tool_call_id tokens (for tool responses)
         if message.get("tool_call_id"):
             total_tokens += count_tokens(message["tool_call_id"], apply_claude_correction=False)
     
-    # Финальные служебные токены
+    # Final service tokens
     total_tokens += 3
     
-    # Применяем коррекцию к общему количеству
+    # Apply correction to total count
     if apply_claude_correction:
         return int(total_tokens * CLAUDE_CORRECTION_FACTOR)
     return total_tokens
@@ -173,14 +174,14 @@ def count_message_tokens(messages: List[Dict[str, Any]], apply_claude_correction
 
 def count_tools_tokens(tools: Optional[List[Dict[str, Any]]], apply_claude_correction: bool = True) -> int:
     """
-    Подсчитывает токены в определениях инструментов.
+    Counts tokens in tool definitions.
     
     Args:
-        tools: Список инструментов в формате OpenAI
-        apply_claude_correction: Применять коэффициент коррекции для Claude
+        tools: List of tools in OpenAI format
+        apply_claude_correction: Apply correction coefficient for Claude
     
     Returns:
-        Приблизительное количество токенов (с коррекцией для Claude)
+        Approximate number of tokens (with Claude correction)
     """
     if not tools:
         return 0
@@ -188,25 +189,25 @@ def count_tools_tokens(tools: Optional[List[Dict[str, Any]]], apply_claude_corre
     total_tokens = 0
     
     for tool in tools:
-        total_tokens += 4  # Служебные токены
+        total_tokens += 4  # Service tokens
         
         if tool.get("type") == "function":
             func = tool.get("function", {})
             
-            # Имя функции
+            # Function name
             total_tokens += count_tokens(func.get("name", ""), apply_claude_correction=False)
             
-            # Описание функции
+            # Function description
             total_tokens += count_tokens(func.get("description", ""), apply_claude_correction=False)
             
-            # Параметры (JSON schema)
+            # Parameters (JSON schema)
             params = func.get("parameters")
             if params:
                 import json
                 params_str = json.dumps(params, ensure_ascii=False)
                 total_tokens += count_tokens(params_str, apply_claude_correction=False)
     
-    # Применяем коррекцию к общему количеству
+    # Apply correction to total count
     if apply_claude_correction:
         return int(total_tokens * CLAUDE_CORRECTION_FACTOR)
     return total_tokens
@@ -218,19 +219,19 @@ def estimate_request_tokens(
     system_prompt: Optional[str] = None
 ) -> Dict[str, int]:
     """
-    Оценивает общее количество токенов в запросе.
+    Estimates total number of tokens in request.
     
     Args:
-        messages: Список сообщений
-        tools: Список инструментов (опционально)
-        system_prompt: Системный промпт (опционально, если не в messages)
+        messages: List of messages
+        tools: List of tools (optional)
+        system_prompt: System prompt (optional, if not in messages)
     
     Returns:
-        Словарь с детализацией токенов:
-        - messages_tokens: токены сообщений
-        - tools_tokens: токены инструментов
-        - system_tokens: токены системного промпта
-        - total_tokens: общее количество
+        Dictionary with token breakdown:
+        - messages_tokens: message tokens
+        - tools_tokens: tool tokens
+        - system_tokens: system prompt tokens
+        - total_tokens: total count
     """
     messages_tokens = count_message_tokens(messages)
     tools_tokens = count_tools_tokens(tools)
