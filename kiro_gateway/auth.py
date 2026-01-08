@@ -455,6 +455,14 @@ class KiroAuthManager:
         
         Used by kiro-cli which authenticates via AWS IAM Identity Center.
         
+        Strategy: Try with current in-memory token first. If it fails with 400
+        (invalid_request - token was invalidated by kiro-cli re-login), reload
+        credentials from SQLite and retry once.
+        
+        This approach handles both scenarios:
+        1. Container successfully refreshed token (uses in-memory token)
+        2. kiro-cli re-login invalidated token (reloads from SQLite on failure)
+        
         Endpoint: https://oidc.{region}.amazonaws.com/token
         Method: POST
         Content-Type: application/x-www-form-urlencoded
@@ -464,11 +472,28 @@ class KiroAuthManager:
             ValueError: If required credentials are not set
             httpx.HTTPError: On HTTP request error
         """
-        # Re-read credentials from SQLite to pick up fresh tokens after kiro-cli re-login
-        if self._sqlite_db:
-            logger.debug("Reloading credentials from SQLite before token refresh...")
-            self._load_credentials_from_sqlite(self._sqlite_db)
+        try:
+            await self._do_aws_sso_oidc_refresh()
+        except httpx.HTTPStatusError as e:
+            # 400 = invalid_request, likely stale token after kiro-cli re-login
+            if e.response.status_code == 400 and self._sqlite_db:
+                logger.warning("Token refresh failed with 400, reloading credentials from SQLite and retrying...")
+                self._load_credentials_from_sqlite(self._sqlite_db)
+                await self._do_aws_sso_oidc_refresh()
+            else:
+                raise
+    
+    async def _do_aws_sso_oidc_refresh(self) -> None:
+        """
+        Performs the actual AWS SSO OIDC token refresh.
         
+        This is the internal implementation called by _refresh_token_aws_sso_oidc().
+        It performs a single refresh attempt with current in-memory credentials.
+        
+        Raises:
+            ValueError: If required credentials are not set
+            httpx.HTTPStatusError: On HTTP error (including 400 for invalid token)
+        """
         if not self._refresh_token:
             raise ValueError("Refresh token is not set")
         if not self._client_id:

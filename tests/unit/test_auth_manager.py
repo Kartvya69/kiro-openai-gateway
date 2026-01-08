@@ -1417,12 +1417,55 @@ class TestKiroAuthManagerSsoRegionSeparation:
         assert "eu-west-1" not in manager._refresh_url
     
     @pytest.mark.asyncio
-    async def test_refresh_token_aws_sso_oidc_reloads_sqlite_before_refresh(
+    async def test_refresh_token_aws_sso_oidc_uses_memory_token_first(
+        self, mock_aws_sso_oidc_token_response
+    ):
+        """
+        What it does: Verifies that in-memory token is used first, not SQLite.
+        Purpose: Ensure container's successfully refreshed token is used (not overwritten by SQLite).
+        """
+        print("Setup: Creating KiroAuthManager with in-memory credentials...")
+        manager = KiroAuthManager(
+            refresh_token="memory_refresh_token",
+            client_id="test_client_id",
+            client_secret="test_client_secret"
+        )
+        # Simulate SQLite path being set (but we won't actually use it)
+        manager._sqlite_db = "/fake/path/data.sqlite3"
+        
+        print("Setup: Mocking HTTP client for successful refresh...")
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json = Mock(return_value=mock_aws_sso_oidc_token_response())
+        mock_response.raise_for_status = Mock()
+        
+        with patch('kiro_gateway.auth.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+            
+            # Patch _load_credentials_from_sqlite to track if it's called
+            with patch.object(manager, '_load_credentials_from_sqlite') as mock_load:
+                await manager._refresh_token_aws_sso_oidc()
+                
+                print("Verification: SQLite was NOT reloaded (success on first try)...")
+                mock_load.assert_not_called()
+                
+                print("Verification: Request used in-memory token...")
+                call_args = mock_client.post.call_args
+                data = call_args[1].get('data', {})
+                print(f"Refresh token sent: {data.get('refresh_token')}")
+                assert data.get('refresh_token') == "memory_refresh_token"
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_aws_sso_oidc_reloads_sqlite_on_400_error(
         self, tmp_path, mock_aws_sso_oidc_token_response
     ):
         """
-        What it does: Verifies SQLite credentials are reloaded before token refresh.
-        Purpose: Pick up fresh tokens after kiro-cli re-login without container restart.
+        What it does: Verifies SQLite is reloaded and retry happens on 400 error.
+        Purpose: Pick up fresh tokens after kiro-cli re-login when in-memory token is stale.
         """
         import sqlite3
         import json
@@ -1492,27 +1535,151 @@ class TestKiroAuthManagerSsoRegionSeparation:
         print("Verification: Manager still has old refresh_token in memory...")
         assert manager._refresh_token == "old_refresh_token"
         
-        # Mock HTTP client for the refresh call
-        print("Action: Calling _refresh_token_aws_sso_oidc...")
-        mock_response = AsyncMock()
-        mock_response.status_code = 200
-        mock_response.json = Mock(return_value=mock_aws_sso_oidc_token_response())
-        mock_response.raise_for_status = Mock()
+        # Mock HTTP client: first call fails with 400, second succeeds
+        print("Setup: Mocking HTTP client (first=400, second=200)...")
+        
+        # First response: 400 error (stale token)
+        mock_error_response = AsyncMock()
+        mock_error_response.status_code = 400
+        mock_error_response.text = '{"error":"invalid_request","error_description":"Invalid request"}'
+        mock_error_response.json = Mock(return_value={"error": "invalid_request"})
+        mock_error_response.raise_for_status = Mock(
+            side_effect=httpx.HTTPStatusError(
+                "400 Bad Request",
+                request=Mock(),
+                response=mock_error_response
+            )
+        )
+        
+        # Second response: success
+        mock_success_response = AsyncMock()
+        mock_success_response.status_code = 200
+        mock_success_response.json = Mock(return_value=mock_aws_sso_oidc_token_response())
+        mock_success_response.raise_for_status = Mock()
+        
+        call_count = 0
+        sent_tokens = []
+        
+        async def mock_post(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            sent_tokens.append(kwargs.get('data', {}).get('refresh_token'))
+            if call_count == 1:
+                return mock_error_response
+            return mock_success_response
         
         with patch('kiro_gateway.auth.httpx.AsyncClient') as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.post = mock_post
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
             
+            print("Action: Calling _refresh_token_aws_sso_oidc...")
             await manager._refresh_token_aws_sso_oidc()
             
-            # Verify that the request used the NEW refresh token from SQLite
-            print("Verification: Request used new refresh_token from SQLite...")
-            call_args = mock_client.post.call_args
-            data = call_args[1].get('data', {})
+            print("Verification: Two requests were made (retry on 400)...")
+            print(f"Call count: {call_count}")
+            assert call_count == 2, "Should retry after 400 error"
             
-            print(f"Refresh token sent: {data.get('refresh_token')}")
-            assert data.get('refresh_token') == "new_refresh_token_from_kiro_cli", \
-                "Should use fresh token from SQLite, not stale token from memory"
+            print("Verification: First request used OLD token from memory...")
+            print(f"First token sent: {sent_tokens[0]}")
+            assert sent_tokens[0] == "old_refresh_token"
+            
+            print("Verification: Second request used NEW token from SQLite...")
+            print(f"Second token sent: {sent_tokens[1]}")
+            assert sent_tokens[1] == "new_refresh_token_from_kiro_cli"
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_aws_sso_oidc_no_retry_on_non_400_error(
+        self, mock_aws_sso_oidc_token_response
+    ):
+        """
+        What it does: Verifies that non-400 errors are not retried.
+        Purpose: Ensure only 400 (invalid_request) triggers SQLite reload.
+        """
+        print("Setup: Creating KiroAuthManager...")
+        manager = KiroAuthManager(
+            refresh_token="test_refresh",
+            client_id="test_client_id",
+            client_secret="test_client_secret"
+        )
+        manager._sqlite_db = "/fake/path/data.sqlite3"
+        
+        print("Setup: Mocking HTTP client with 500 error...")
+        mock_error_response = AsyncMock()
+        mock_error_response.status_code = 500
+        mock_error_response.text = "Internal Server Error"
+        mock_error_response.json = Mock(side_effect=Exception("Not JSON"))
+        mock_error_response.raise_for_status = Mock(
+            side_effect=httpx.HTTPStatusError(
+                "500 Internal Server Error",
+                request=Mock(),
+                response=mock_error_response
+            )
+        )
+        
+        with patch('kiro_gateway.auth.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_error_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+            
+            with patch.object(manager, '_load_credentials_from_sqlite') as mock_load:
+                print("Action: Calling _refresh_token_aws_sso_oidc (expecting 500 error)...")
+                with pytest.raises(httpx.HTTPStatusError) as exc_info:
+                    await manager._refresh_token_aws_sso_oidc()
+                
+                print("Verification: 500 error was raised (not retried)...")
+                assert exc_info.value.response.status_code == 500
+                
+                print("Verification: SQLite was NOT reloaded (500 != 400)...")
+                mock_load.assert_not_called()
+    
+    @pytest.mark.asyncio
+    async def test_refresh_token_aws_sso_oidc_no_retry_without_sqlite_db(
+        self, mock_aws_sso_oidc_token_response
+    ):
+        """
+        What it does: Verifies that 400 error is not retried when sqlite_db is not set.
+        Purpose: Ensure retry only happens when SQLite source is available.
+        """
+        print("Setup: Creating KiroAuthManager WITHOUT sqlite_db...")
+        manager = KiroAuthManager(
+            refresh_token="test_refresh",
+            client_id="test_client_id",
+            client_secret="test_client_secret"
+        )
+        # Explicitly ensure no sqlite_db
+        manager._sqlite_db = None
+        
+        print("Setup: Mocking HTTP client with 400 error...")
+        mock_error_response = AsyncMock()
+        mock_error_response.status_code = 400
+        mock_error_response.text = '{"error":"invalid_request"}'
+        mock_error_response.json = Mock(return_value={"error": "invalid_request"})
+        mock_error_response.raise_for_status = Mock(
+            side_effect=httpx.HTTPStatusError(
+                "400 Bad Request",
+                request=Mock(),
+                response=mock_error_response
+            )
+        )
+        
+        with patch('kiro_gateway.auth.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_error_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+            
+            print("Action: Calling _refresh_token_aws_sso_oidc (expecting 400 error)...")
+            with pytest.raises(httpx.HTTPStatusError) as exc_info:
+                await manager._refresh_token_aws_sso_oidc()
+            
+            print("Verification: 400 error was raised (no retry without sqlite_db)...")
+            assert exc_info.value.response.status_code == 400
+            
+            print("Verification: Only one request was made...")
+            assert mock_client.post.call_count == 1

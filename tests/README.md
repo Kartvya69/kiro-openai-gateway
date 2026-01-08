@@ -449,6 +449,26 @@ Background: CodeWhisperer API only exists in us-east-1, but users may have SSO c
   - **What it does**: Verifies API hosts don't change when loading from SQLite
   - **Purpose**: Ensure all API calls go to us-east-1 where CodeWhisperer exists
 
+**New tests for "try first, reload on failure" pattern (PR #22 fix):**
+
+Background: AWS SSO OIDC refresh tokens are one-time use. When you get a new token, the old one is invalidated. The original PR #22 proposed always reloading from SQLite before refresh, but this would break when the container successfully refreshes its own token (the old token in SQLite would overwrite the valid in-memory token). The fix implements "try first, reload on failure" pattern - use in-memory token first, only reload from SQLite on 400 error.
+
+- **`test_refresh_token_aws_sso_oidc_uses_memory_token_first()`**:
+  - **What it does**: Verifies that in-memory token is used first, not SQLite
+  - **Purpose**: Ensure container's successfully refreshed token is used (not overwritten by SQLite)
+
+- **`test_refresh_token_aws_sso_oidc_reloads_sqlite_on_400_error()`**:
+  - **What it does**: Verifies SQLite is reloaded and retry happens on 400 error
+  - **Purpose**: Pick up fresh tokens after kiro-cli re-login when in-memory token is stale
+
+- **`test_refresh_token_aws_sso_oidc_no_retry_on_non_400_error()`**:
+  - **What it does**: Verifies that non-400 errors are not retried
+  - **Purpose**: Ensure only 400 (invalid_request) triggers SQLite reload
+
+- **`test_refresh_token_aws_sso_oidc_no_retry_without_sqlite_db()`**:
+  - **What it does**: Verifies that 400 error is not retried when sqlite_db is not set
+  - **Purpose**: Ensure retry only happens when SQLite source is available
+
 ---
 
 ### `tests/unit/test_cache.py`
