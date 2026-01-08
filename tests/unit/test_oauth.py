@@ -76,7 +76,7 @@ class TestKiroOAuthManager:
             auth_timeout=300,
             poll_interval=10,
         )
-        assert str(manager.credentials_file) == "/tmp/test.json"
+        assert manager.credentials_file.as_posix() == "/tmp/test.json"
         assert manager.callback_port_start == 8000
         assert manager.callback_port_end == 8010
         assert manager.auth_timeout == 300
