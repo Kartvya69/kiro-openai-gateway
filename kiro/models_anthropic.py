@@ -45,6 +45,23 @@ class TextContentBlock(BaseModel):
     text: str
 
 
+class ThinkingContentBlock(BaseModel):
+    """
+    Thinking content block in Anthropic format.
+    
+    Represents the model's reasoning/thinking process.
+    Used when extended thinking is enabled.
+    
+    Attributes:
+        type: Always "thinking"
+        thinking: The thinking/reasoning content
+        signature: Cryptographic signature for verification (placeholder in our case)
+    """
+    type: Literal["thinking"] = "thinking"
+    thinking: str
+    signature: str = ""
+
+
 class ToolUseContentBlock(BaseModel):
     """
     Tool use content block in Anthropic format.
@@ -216,7 +233,7 @@ class AnthropicMessagesResponse(BaseModel):
         id: Unique message ID
         type: Always "message"
         role: Always "assistant"
-        content: List of content blocks
+        content: List of content blocks (may include thinking, text, tool_use)
         model: Model used
         stop_reason: Why generation stopped
         stop_sequence: Stop sequence that triggered stop (if any)
@@ -225,7 +242,7 @@ class AnthropicMessagesResponse(BaseModel):
     id: str
     type: Literal["message"] = "message"
     role: Literal["assistant"] = "assistant"
-    content: List[Union[TextContentBlock, ToolUseContentBlock]]
+    content: List[Union[ThinkingContentBlock, TextContentBlock, ToolUseContentBlock]]
     model: str
     stop_reason: Optional[Literal["end_turn", "max_tokens", "stop_sequence", "tool_use"]] = None
     stop_sequence: Optional[str] = None
@@ -265,6 +282,12 @@ class TextDelta(BaseModel):
     text: str
 
 
+class ThinkingDelta(BaseModel):
+    """Delta for thinking content."""
+    type: Literal["thinking_delta"] = "thinking_delta"
+    thinking: str
+
+
 class InputJsonDelta(BaseModel):
     """Delta for tool input JSON."""
     type: Literal["input_json_delta"] = "input_json_delta"
@@ -277,11 +300,11 @@ class ContentBlockDeltaEvent(BaseModel):
     
     Attributes:
         index: Index of the content block being updated
-        delta: The delta update (text_delta or input_json_delta)
+        delta: The delta update (text_delta, thinking_delta, or input_json_delta)
     """
     type: Literal["content_block_delta"] = "content_block_delta"
     index: int
-    delta: Union[TextDelta, InputJsonDelta, Dict[str, Any]]
+    delta: Union[TextDelta, ThinkingDelta, InputJsonDelta, Dict[str, Any]]
 
 
 class ContentBlockStopEvent(BaseModel):
