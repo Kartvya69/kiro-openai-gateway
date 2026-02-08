@@ -29,12 +29,11 @@ import json
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, Security, Header
+from fastapi import APIRouter, HTTPException, Request, Header
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.security import APIKeyHeader
 from loguru import logger
 
-from kiro.config import PROXY_API_KEY
+from kiro.config import AUTH_MODE
 from kiro.models_anthropic import (
     AnthropicMessagesRequest,
     AnthropicMessagesResponse,
@@ -51,6 +50,7 @@ from kiro.streaming_anthropic import (
 from kiro.http_client import KiroHttpClient
 from kiro.utils import generate_conversation_id
 from kiro.tokenizer import count_tools_tokens
+from kiro.per_request_auth import get_request_auth_manager, verify_api_key_or_token, extract_bearer_token
 
 # Import debug_logger
 try:
@@ -59,60 +59,11 @@ except ImportError:
     debug_logger = None
 
 
-# --- Security scheme ---
-# Anthropic uses x-api-key header instead of Authorization: Bearer
-anthropic_api_key_header = APIKeyHeader(name="x-api-key", auto_error=False)
-# Also support Authorization: Bearer for compatibility
-auth_header = APIKeyHeader(name="Authorization", auto_error=False)
-
-
-async def verify_anthropic_api_key(
-    x_api_key: Optional[str] = Security(anthropic_api_key_header),
-    authorization: Optional[str] = Security(auth_header)
-) -> bool:
-    """
-    Verify API key for Anthropic API.
-    
-    Supports two authentication methods:
-    1. x-api-key header (Anthropic native)
-    2. Authorization: Bearer header (for compatibility)
-    
-    Args:
-        x_api_key: Value from x-api-key header
-        authorization: Value from Authorization header
-    
-    Returns:
-        True if key is valid
-    
-    Raises:
-        HTTPException: 401 if key is invalid or missing
-    """
-    # Check x-api-key first (Anthropic native)
-    if x_api_key and x_api_key == PROXY_API_KEY:
-        return True
-    
-    # Fall back to Authorization: Bearer
-    if authorization and authorization == f"Bearer {PROXY_API_KEY}":
-        return True
-    
-    logger.warning("Access attempt with invalid API key (Anthropic endpoint)")
-    raise HTTPException(
-        status_code=401,
-        detail={
-            "type": "error",
-            "error": {
-                "type": "authentication_error",
-                "message": "Invalid or missing API key. Use x-api-key header or Authorization: Bearer."
-            }
-        }
-    )
-
-
 # --- Router ---
 router = APIRouter(tags=["Anthropic API"])
 
 
-@router.post("/v1/messages", dependencies=[Depends(verify_anthropic_api_key)])
+@router.post("/v1/messages")
 async def messages(
     request: Request,
     request_data: AnthropicMessagesRequest,
@@ -146,7 +97,11 @@ async def messages(
     if anthropic_version:
         logger.debug(f"Anthropic-Version header: {anthropic_version}")
     
-    auth_manager: KiroAuthManager = request.app.state.auth_manager
+    # Verify authentication (proxy_key or per_request mode)
+    await verify_api_key_or_token(request)
+    
+    # Get auth manager (global or per-request based on AUTH_MODE)
+    auth_manager: KiroAuthManager = await get_request_auth_manager(request)
     model_cache: ModelInfoCache = request.app.state.model_cache
     
     # Note: prepare_new_request() and log_request_body() are now called by DebugLoggerMiddleware

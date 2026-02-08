@@ -62,6 +62,7 @@ from kiro.config import (
     KIRO_CREDS_FILE,
     KIRO_CLI_DB_FILE,
     PROXY_API_KEY,
+    AUTH_MODE,
     LOG_LEVEL,
     SERVER_HOST,
     SERVER_PORT,
@@ -205,7 +206,8 @@ def validate_configuration() -> None:
     Validates that required configuration is present.
     
     Checks:
-    - Either REFRESH_TOKEN, KIRO_CREDS_FILE, or KIRO_CLI_DB_FILE is configured
+    - For proxy_key mode: Either REFRESH_TOKEN, KIRO_CREDS_FILE, or KIRO_CLI_DB_FILE is configured
+    - For per_request mode: No global credentials needed (clients provide their own)
     - Supports both .env file (local) and environment variables (Docker)
     
     Raises:
@@ -215,6 +217,16 @@ def validate_configuration() -> None:
     
     # Check if .env file exists (optional - can use environment variables)
     env_file = Path(".env")
+    
+    # Per-request mode: no global credentials needed
+    if AUTH_MODE == "per_request":
+        logger.info("Authentication mode: per_request (clients provide their own Kiro credentials)")
+        # In per_request mode, we still allow global credentials for model loading at startup
+        # but they're not required
+        return
+    
+    # Proxy key mode: need global credentials
+    logger.info("Authentication mode: proxy_key (using configured Kiro credentials)")
     
     # Check for credentials (from .env or environment variables)
     has_refresh_token = bool(REFRESH_TOKEN)
@@ -253,6 +265,9 @@ def validate_configuration() -> None:
                 "      - Option 2: REFRESH_TOKEN from Kiro IDE traffic\n"
                 "      - Option 3: KIRO_CLI_DB_FILE to kiro-cli SQLite database\n"
                 "\n"
+                "Or use per_request mode (clients provide their own credentials):\n"
+                "   AUTH_MODE=per_request\n"
+                "\n"
                 "Or use environment variables (for Docker):\n"
                 "   docker run -e PROXY_API_KEY=\"...\" -e REFRESH_TOKEN=\"...\" ...\n"
                 "\n"
@@ -276,6 +291,9 @@ def validate_configuration() -> None:
                 "\n"
                 "   Option 3: kiro-cli SQLite database (AWS SSO)\n"
                 "      KIRO_CLI_DB_FILE=\"~/.local/share/kiro-cli/data.sqlite3\"\n"
+                "\n"
+                "   Option 4: Use per_request mode (clients provide credentials):\n"
+                "      AUTH_MODE=per_request\n"
                 "\n"
                 "   See README.md for how to obtain credentials."
             )
@@ -335,57 +353,69 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Shared HTTP client created with connection pooling")
     
-    # Create AuthManager
-    # Priority: SQLite DB > JSON file > environment variables
-    app.state.auth_manager = KiroAuthManager(
-        refresh_token=REFRESH_TOKEN,
-        profile_arn=PROFILE_ARN,
-        region=REGION,
-        creds_file=KIRO_CREDS_FILE if KIRO_CREDS_FILE else None,
-        sqlite_db=KIRO_CLI_DB_FILE if KIRO_CLI_DB_FILE else None,
-    )
+    # Create AuthManager (only for proxy_key mode)
+    # In per_request mode, auth managers are created per-request from client tokens
+    if AUTH_MODE == "proxy_key":
+        # Priority: SQLite DB > JSON file > environment variables
+        app.state.auth_manager = KiroAuthManager(
+            refresh_token=REFRESH_TOKEN,
+            profile_arn=PROFILE_ARN,
+            region=REGION,
+            creds_file=KIRO_CREDS_FILE if KIRO_CREDS_FILE else None,
+            sqlite_db=KIRO_CLI_DB_FILE if KIRO_CLI_DB_FILE else None,
+        )
+        logger.info("Global auth manager created (proxy_key mode)")
+    else:
+        # per_request mode: no global auth manager
+        app.state.auth_manager = None
+        logger.info("No global auth manager (per_request mode - clients provide their own credentials)")
     
     # Create model cache
     app.state.model_cache = ModelInfoCache()
     
-    # BLOCKING: Load models from Kiro API at startup
-    # This ensures the cache is populated BEFORE accepting any requests.
-    # No race conditions - requests only start after yield.
-    logger.info("Loading models from Kiro API...")
-    try:
-        token = await app.state.auth_manager.get_access_token()
-        from kiro.utils import get_kiro_headers
-        from kiro.auth import AuthType
-        headers = get_kiro_headers(app.state.auth_manager, token)
-        
-        # Build params - profileArn is only needed for Kiro Desktop auth
-        params = {"origin": "AI_EDITOR"}
-        if app.state.auth_manager.auth_type == AuthType.KIRO_DESKTOP and app.state.auth_manager.profile_arn:
-            params["profileArn"] = app.state.auth_manager.profile_arn
-        
-        list_models_url = f"{app.state.auth_manager.q_host}/ListAvailableModels"
-        logger.debug(f"Fetching models from: {list_models_url}")
-        
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(
-                list_models_url,
-                headers=headers,
-                params=params
-            )
+    # BLOCKING: Load models from Kiro API at startup (only in proxy_key mode)
+    # In per_request mode, we use fallback models since we don't have global credentials
+    if AUTH_MODE == "proxy_key":
+        logger.info("Loading models from Kiro API...")
+        try:
+            token = await app.state.auth_manager.get_access_token()
+            from kiro.utils import get_kiro_headers
+            from kiro.auth import AuthType
+            headers = get_kiro_headers(app.state.auth_manager, token)
             
-            if response.status_code == 200:
-                data = response.json()
-                models_list = data.get("models", [])
-                await app.state.model_cache.update(models_list)
-                logger.debug(f"Successfully loaded {len(models_list)} models from Kiro API")
-            else:
-                raise Exception(f"HTTP {response.status_code}")
-    except Exception as e:
-        # FALLBACK: Use built-in model list
-        logger.error(f"Failed to fetch models from Kiro API: {e}")
-        logger.error("Using pre-configured fallback models. Not all models may be available on your plan, or the list may be outdated.")
-        
-        # Populate cache with fallback models
+            # Build params - profileArn is only needed for Kiro Desktop auth
+            params = {"origin": "AI_EDITOR"}
+            if app.state.auth_manager.auth_type == AuthType.KIRO_DESKTOP and app.state.auth_manager.profile_arn:
+                params["profileArn"] = app.state.auth_manager.profile_arn
+            
+            list_models_url = f"{app.state.auth_manager.q_host}/ListAvailableModels"
+            logger.debug(f"Fetching models from: {list_models_url}")
+            
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.get(
+                    list_models_url,
+                    headers=headers,
+                    params=params
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    models_list = data.get("models", [])
+                    await app.state.model_cache.update(models_list)
+                    logger.debug(f"Successfully loaded {len(models_list)} models from Kiro API")
+                else:
+                    raise Exception(f"HTTP {response.status_code}")
+        except Exception as e:
+            # FALLBACK: Use built-in model list
+            logger.error(f"Failed to fetch models from Kiro API: {e}")
+            logger.error("Using pre-configured fallback models. Not all models may be available on your plan, or the list may be outdated.")
+            
+            # Populate cache with fallback models
+            await app.state.model_cache.update(FALLBACK_MODELS)
+            logger.debug(f"Loaded {len(FALLBACK_MODELS)} fallback models")
+    else:
+        # per_request mode: use fallback models
+        logger.info("Using fallback model list (per_request mode)")
         await app.state.model_cache.update(FALLBACK_MODELS)
         logger.debug(f"Loaded {len(FALLBACK_MODELS)} fallback models")
     

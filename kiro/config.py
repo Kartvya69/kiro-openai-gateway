@@ -95,7 +95,13 @@ SERVER_PORT: int = int(os.getenv("SERVER_PORT", str(DEFAULT_SERVER_PORT)))
 # Proxy Server Settings
 # ==================================================================================================
 
+# Authentication mode for the gateway
+# - "proxy_key": Use PROXY_API_KEY for gateway authentication (default, backward compatible)
+# - "per_request": Use Kiro refresh token in Authorization header for each request
+AUTH_MODE: str = os.getenv("AUTH_MODE", "proxy_key").lower()
+
 # API key for proxy access (clients must pass it in Authorization header)
+# Required when AUTH_MODE="proxy_key", ignored when AUTH_MODE="per_request"
 PROXY_API_KEY: str = os.getenv("PROXY_API_KEY", "my-super-secret-password-123")
 
 # ==================================================================================================

@@ -21,126 +21,152 @@ import json
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from kiro.routes_openai import verify_api_key, router
-from kiro.config import PROXY_API_KEY, APP_VERSION
+from kiro.routes_openai import router
+from kiro.per_request_auth import verify_api_key_or_token
+from kiro.config import PROXY_API_KEY, APP_VERSION, AUTH_MODE
 
 
 # =============================================================================
-# Tests for verify_api_key function
+# Tests for verify_api_key_or_token function
 # =============================================================================
 
 class TestVerifyApiKey:
-    """Tests for the verify_api_key authentication function."""
+    """Tests for the verify_api_key_or_token authentication function."""
+    
+    @pytest.fixture
+    def mock_request_proxy_key(self):
+        """Create a mock request with valid PROXY_API_KEY."""
+        request = Mock()
+        request.headers = {"Authorization": f"Bearer {PROXY_API_KEY}"}
+        return request
+    
+    @pytest.fixture
+    def mock_request_per_request_mode(self):
+        """Create a mock request with Kiro refresh token (per_request mode)."""
+        request = Mock()
+        request.headers = {"Authorization": "Bearer kiro_refresh_token_123"}
+        return request
     
     @pytest.mark.asyncio
-    async def test_valid_bearer_token_returns_true(self):
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
+    async def test_valid_bearer_token_returns_true(self, mock_request_proxy_key):
         """
         What it does: Verifies that a valid Bearer token passes authentication.
-        Purpose: Ensure correct API keys are accepted.
+        Purpose: Ensure correct API keys are accepted in proxy_key mode.
         """
         print("Setup: Creating valid Bearer token...")
-        valid_header = f"Bearer {PROXY_API_KEY}"
         
-        print("Action: Calling verify_api_key...")
-        result = await verify_api_key(valid_header)
+        print("Action: Calling verify_api_key_or_token...")
+        result = await verify_api_key_or_token(mock_request_proxy_key)
         
         print(f"Comparing result: Expected True, Got {result}")
         assert result is True
     
     @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
     async def test_invalid_api_key_raises_401(self):
         """
         What it does: Verifies that an invalid API key is rejected.
-        Purpose: Ensure unauthorized access is blocked.
+        Purpose: Ensure unauthorized access is blocked in proxy_key mode.
         """
         print("Setup: Creating invalid Bearer token...")
-        invalid_header = "Bearer wrong_key_12345"
+        request = Mock()
+        request.headers = {"Authorization": "Bearer wrong_key_12345"}
         
-        print("Action: Calling verify_api_key with invalid key...")
+        print("Action: Calling verify_api_key_or_token with invalid key...")
         with pytest.raises(HTTPException) as exc_info:
-            await verify_api_key(invalid_header)
+            await verify_api_key_or_token(request)
         
         print(f"Checking: HTTPException with status 401...")
         assert exc_info.value.status_code == 401
-        assert "Invalid or missing API Key" in exc_info.value.detail
     
     @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
     async def test_missing_api_key_raises_401(self):
         """
         What it does: Verifies that missing API key is rejected.
-        Purpose: Ensure requests without authentication are blocked.
+        Purpose: Ensure requests without authentication are blocked in proxy_key mode.
         """
         print("Setup: No API key provided...")
+        request = Mock()
+        request.headers = {}
         
-        print("Action: Calling verify_api_key with None...")
+        print("Action: Calling verify_api_key_or_token with missing header...")
         with pytest.raises(HTTPException) as exc_info:
-            await verify_api_key(None)
+            await verify_api_key_or_token(request)
         
         print(f"Checking: HTTPException with status 401...")
         assert exc_info.value.status_code == 401
     
     @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
     async def test_empty_api_key_raises_401(self):
         """
         What it does: Verifies that empty string API key is rejected.
-        Purpose: Ensure empty credentials are blocked.
+        Purpose: Ensure empty credentials are blocked in proxy_key mode.
         """
         print("Setup: Empty API key...")
+        request = Mock()
+        request.headers = {"Authorization": ""}
         
-        print("Action: Calling verify_api_key with empty string...")
+        print("Action: Calling verify_api_key_or_token with empty string...")
         with pytest.raises(HTTPException) as exc_info:
-            await verify_api_key("")
+            await verify_api_key_or_token(request)
         
         print(f"Checking: HTTPException with status 401...")
         assert exc_info.value.status_code == 401
     
     @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
     async def test_key_without_bearer_prefix_raises_401(self):
         """
         What it does: Verifies that API key without Bearer prefix is rejected.
-        Purpose: Ensure proper Authorization header format is required.
+        Purpose: Ensure proper Authorization header format is required in proxy_key mode.
         """
         print("Setup: API key without Bearer prefix...")
-        wrong_format = PROXY_API_KEY  # Without "Bearer "
+        request = Mock()
+        request.headers = {"Authorization": PROXY_API_KEY}  # Without "Bearer "
         
-        print("Action: Calling verify_api_key...")
+        print("Action: Calling verify_api_key_or_token...")
         with pytest.raises(HTTPException) as exc_info:
-            await verify_api_key(wrong_format)
+            await verify_api_key_or_token(request)
         
         print(f"Checking: HTTPException with status 401...")
         assert exc_info.value.status_code == 401
     
     @pytest.mark.asyncio
-    async def test_bearer_with_extra_spaces_raises_401(self):
+    @patch("kiro.per_request_auth.AUTH_MODE", "per_request")
+    async def test_per_request_mode_valid_token_returns_true(self, mock_request_per_request_mode):
         """
-        What it does: Verifies that Bearer token with extra spaces is rejected.
-        Purpose: Ensure strict format validation.
+        What it does: Verifies that a valid Kiro refresh token passes in per_request mode.
+        Purpose: Ensure per_request authentication mode works correctly.
         """
-        print("Setup: Bearer token with extra spaces...")
-        malformed = f"Bearer  {PROXY_API_KEY}"  # Double space
+        print("Setup: Creating request with Kiro refresh token in per_request mode...")
         
-        print("Action: Calling verify_api_key...")
-        with pytest.raises(HTTPException) as exc_info:
-            await verify_api_key(malformed)
+        print("Action: Calling verify_api_key_or_token...")
+        result = await verify_api_key_or_token(mock_request_per_request_mode)
         
-        print(f"Checking: HTTPException with status 401...")
-        assert exc_info.value.status_code == 401
+        print(f"Comparing result: Expected True, Got {result}")
+        assert result is True
     
     @pytest.mark.asyncio
-    async def test_lowercase_bearer_raises_401(self):
+    @patch("kiro.per_request_auth.AUTH_MODE", "per_request")
+    async def test_per_request_mode_missing_token_raises_401(self):
         """
-        What it does: Verifies that lowercase 'bearer' is rejected.
-        Purpose: Ensure case-sensitive Bearer prefix.
+        What it does: Verifies that missing token is rejected in per_request mode.
+        Purpose: Ensure per_request mode requires a token.
         """
-        print("Setup: Lowercase bearer prefix...")
-        lowercase = f"bearer {PROXY_API_KEY}"
+        print("Setup: No Authorization header in per_request mode...")
+        request = Mock()
+        request.headers = {}
         
-        print("Action: Calling verify_api_key...")
+        print("Action: Calling verify_api_key_or_token...")
         with pytest.raises(HTTPException) as exc_info:
-            await verify_api_key(lowercase)
+            await verify_api_key_or_token(request)
         
         print(f"Checking: HTTPException with status 401...")
         assert exc_info.value.status_code == 401
+        assert "Missing or invalid Authorization header" in str(exc_info.value.detail)
 
 
 # =============================================================================

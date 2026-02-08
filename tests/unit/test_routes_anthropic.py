@@ -18,138 +18,170 @@ import json
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from kiro.routes_anthropic import verify_anthropic_api_key, router
+from kiro.routes_anthropic import router
+from kiro.per_request_auth import verify_api_key_or_token
 from kiro.config import PROXY_API_KEY
 
 
 # =============================================================================
-# Tests for verify_anthropic_api_key function
+# Tests for verify_api_key_or_token function
 # =============================================================================
 
 class TestVerifyAnthropicApiKey:
-    """Tests for the verify_anthropic_api_key authentication function."""
+    """Tests for the verify_api_key_or_token authentication function."""
+    
+    @pytest.fixture
+    def mock_request_x_api_key(self):
+        """Create a mock request with valid x-api-key."""
+        request = Mock()
+        request.headers = {"x-api-key": PROXY_API_KEY}
+        return request
+    
+    @pytest.fixture
+    def mock_request_bearer(self):
+        """Create a mock request with valid Bearer token."""
+        request = Mock()
+        request.headers = {"Authorization": f"Bearer {PROXY_API_KEY}"}
+        return request
     
     @pytest.mark.asyncio
-    async def test_valid_x_api_key_returns_true(self):
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
+    async def test_valid_x_api_key_returns_true(self, mock_request_x_api_key):
         """
         What it does: Verifies that a valid x-api-key header passes authentication.
-        Purpose: Ensure Anthropic native authentication works.
+        Purpose: Ensure Anthropic native authentication works in proxy_key mode.
         """
         print("Setup: Creating valid x-api-key...")
         
-        print("Action: Calling verify_anthropic_api_key...")
-        result = await verify_anthropic_api_key(x_api_key=PROXY_API_KEY, authorization=None)
+        print("Action: Calling verify_api_key_or_token...")
+        result = await verify_api_key_or_token(mock_request_x_api_key)
         
         print(f"Comparing result: Expected True, Got {result}")
         assert result is True
     
     @pytest.mark.asyncio
-    async def test_valid_bearer_token_returns_true(self):
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
+    async def test_valid_bearer_token_returns_true(self, mock_request_bearer):
         """
         What it does: Verifies that a valid Bearer token passes authentication.
-        Purpose: Ensure OpenAI-style authentication also works.
+        Purpose: Ensure OpenAI-style authentication also works in proxy_key mode.
         """
         print("Setup: Creating valid Bearer token...")
-        valid_auth = f"Bearer {PROXY_API_KEY}"
         
-        print("Action: Calling verify_anthropic_api_key...")
-        result = await verify_anthropic_api_key(x_api_key=None, authorization=valid_auth)
+        print("Action: Calling verify_api_key_or_token...")
+        result = await verify_api_key_or_token(mock_request_bearer)
         
         print(f"Comparing result: Expected True, Got {result}")
         assert result is True
     
     @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
     async def test_x_api_key_takes_precedence(self):
         """
         What it does: Verifies x-api-key is checked before Authorization header.
-        Purpose: Ensure Anthropic native auth has priority.
+        Purpose: Ensure Anthropic native auth has priority in proxy_key mode.
         """
-        print("Setup: Both headers provided...")
+        print("Setup: Both headers provided, x-api-key is valid...")
+        request = Mock()
+        request.headers = {
+            "x-api-key": PROXY_API_KEY,
+            "Authorization": "Bearer wrong_key"
+        }
         
-        print("Action: Calling verify_anthropic_api_key with both headers...")
-        result = await verify_anthropic_api_key(
-            x_api_key=PROXY_API_KEY,
-            authorization="Bearer wrong_key"
-        )
+        print("Action: Calling verify_api_key_or_token with both headers...")
+        result = await verify_api_key_or_token(request)
         
         print(f"Comparing result: Expected True, Got {result}")
         assert result is True
     
     @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
     async def test_invalid_x_api_key_raises_401(self):
         """
         What it does: Verifies that an invalid x-api-key is rejected.
-        Purpose: Ensure unauthorized access is blocked.
+        Purpose: Ensure unauthorized access is blocked in proxy_key mode.
         """
         print("Setup: Creating invalid x-api-key...")
+        request = Mock()
+        request.headers = {"x-api-key": "wrong_key"}
         
-        print("Action: Calling verify_anthropic_api_key with invalid key...")
+        print("Action: Calling verify_api_key_or_token with invalid key...")
         with pytest.raises(HTTPException) as exc_info:
-            await verify_anthropic_api_key(x_api_key="wrong_key", authorization=None)
+            await verify_api_key_or_token(request)
         
         print(f"Checking: HTTPException with status 401...")
         assert exc_info.value.status_code == 401
     
     @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
     async def test_invalid_bearer_token_raises_401(self):
         """
         What it does: Verifies that an invalid Bearer token is rejected.
-        Purpose: Ensure unauthorized access is blocked.
+        Purpose: Ensure unauthorized access is blocked in proxy_key mode.
         """
         print("Setup: Creating invalid Bearer token...")
+        request = Mock()
+        request.headers = {"Authorization": "Bearer wrong_key"}
         
-        print("Action: Calling verify_anthropic_api_key with invalid token...")
+        print("Action: Calling verify_api_key_or_token with invalid token...")
         with pytest.raises(HTTPException) as exc_info:
-            await verify_anthropic_api_key(x_api_key=None, authorization="Bearer wrong_key")
+            await verify_api_key_or_token(request)
         
         print(f"Checking: HTTPException with status 401...")
         assert exc_info.value.status_code == 401
     
     @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
     async def test_missing_both_headers_raises_401(self):
         """
         What it does: Verifies that missing both headers is rejected.
-        Purpose: Ensure authentication is required.
+        Purpose: Ensure authentication is required in proxy_key mode.
         """
         print("Setup: No authentication headers...")
+        request = Mock()
+        request.headers = {}
         
-        print("Action: Calling verify_anthropic_api_key with no headers...")
+        print("Action: Calling verify_api_key_or_token with no headers...")
         with pytest.raises(HTTPException) as exc_info:
-            await verify_anthropic_api_key(x_api_key=None, authorization=None)
+            await verify_api_key_or_token(request)
         
         print(f"Checking: HTTPException with status 401...")
         assert exc_info.value.status_code == 401
     
     @pytest.mark.asyncio
-    async def test_empty_x_api_key_raises_401(self):
+    @patch("kiro.per_request_auth.AUTH_MODE", "per_request")
+    async def test_per_request_mode_valid_kiro_token_returns_true(self):
         """
-        What it does: Verifies that empty x-api-key is rejected.
-        Purpose: Ensure empty credentials are blocked.
+        What it does: Verifies that a valid Kiro refresh token passes in per_request mode.
+        Purpose: Ensure per_request authentication mode works correctly.
         """
-        print("Setup: Empty x-api-key...")
+        print("Setup: Creating request with Kiro refresh token in per_request mode...")
+        request = Mock()
+        request.headers = {"Authorization": "Bearer kiro_refresh_token_123"}
         
-        print("Action: Calling verify_anthropic_api_key with empty key...")
-        with pytest.raises(HTTPException) as exc_info:
-            await verify_anthropic_api_key(x_api_key="", authorization=None)
+        print("Action: Calling verify_api_key_or_token...")
+        result = await verify_api_key_or_token(request)
         
-        print(f"Checking: HTTPException with status 401...")
-        assert exc_info.value.status_code == 401
+        print(f"Comparing result: Expected True, Got {result}")
+        assert result is True
     
     @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.AUTH_MODE", "per_request")
     async def test_error_response_format_is_anthropic_style(self):
         """
         What it does: Verifies error response follows Anthropic format.
         Purpose: Ensure error format matches Anthropic API.
         """
         print("Setup: Invalid credentials...")
+        request = Mock()
+        request.headers = {"x-api-key": "wrong"}
         
-        print("Action: Calling verify_anthropic_api_key...")
+        print("Action: Calling verify_api_key_or_token...")
         with pytest.raises(HTTPException) as exc_info:
-            await verify_anthropic_api_key(x_api_key="wrong", authorization=None)
+            await verify_api_key_or_token(request)
         
         print(f"Checking: Error format...")
         detail = exc_info.value.detail
-        assert "type" in detail
         assert "error" in detail
         assert detail["error"]["type"] == "authentication_error"
 

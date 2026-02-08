@@ -29,14 +29,13 @@ Contains all API endpoints:
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, Security
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.security import APIKeyHeader
 from loguru import logger
 
 from kiro.config import (
-    PROXY_API_KEY,
     APP_VERSION,
+    AUTH_MODE,
 )
 from kiro.models_openai import (
     OpenAIModel,
@@ -50,37 +49,13 @@ from kiro.converters_openai import build_kiro_payload
 from kiro.streaming_openai import stream_kiro_to_openai, collect_stream_response, stream_with_first_token_retry
 from kiro.http_client import KiroHttpClient
 from kiro.utils import generate_conversation_id
+from kiro.per_request_auth import get_request_auth_manager, verify_api_key_or_token
 
 # Import debug_logger
 try:
     from kiro.debug_logger import debug_logger
 except ImportError:
     debug_logger = None
-
-
-# --- Security scheme ---
-api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
-
-
-async def verify_api_key(auth_header: str = Security(api_key_header)) -> bool:
-    """
-    Verify API key in Authorization header.
-    
-    Expects format: "Bearer {PROXY_API_KEY}"
-    
-    Args:
-        auth_header: Authorization header value
-    
-    Returns:
-        True if key is valid
-    
-    Raises:
-        HTTPException: 401 if key is invalid or missing
-    """
-    if not auth_header or auth_header != f"Bearer {PROXY_API_KEY}":
-        logger.warning("Access attempt with invalid API key.")
-        raise HTTPException(status_code=401, detail="Invalid or missing API Key")
-    return True
 
 
 # --- Router ---
@@ -116,7 +91,7 @@ async def health():
         "version": APP_VERSION
     }
 
-@router.get("/v1/models", response_model=ModelList, dependencies=[Depends(verify_api_key)])
+@router.get("/v1/models", response_model=ModelList)
 async def get_models(request: Request):
     """
     Return list of available models.
@@ -131,6 +106,9 @@ async def get_models(request: Request):
         ModelList with available models in consistent format (with dots)
     """
     logger.info("Request to /v1/models")
+    
+    # Verify authentication (proxy_key or per_request mode)
+    await verify_api_key_or_token(request)
     
     model_resolver: ModelResolver = request.app.state.model_resolver
     
@@ -150,7 +128,7 @@ async def get_models(request: Request):
     return ModelList(data=openai_models)
 
 
-@router.post("/v1/chat/completions", dependencies=[Depends(verify_api_key)])
+@router.post("/v1/chat/completions")
 async def chat_completions(request: Request, request_data: ChatCompletionRequest):
     """
     Chat completions endpoint - compatible with OpenAI API.
@@ -171,7 +149,11 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
     """
     logger.info(f"Request to /v1/chat/completions (model={request_data.model}, stream={request_data.stream})")
     
-    auth_manager: KiroAuthManager = request.app.state.auth_manager
+    # Verify authentication (proxy_key or per_request mode)
+    await verify_api_key_or_token(request)
+    
+    # Get auth manager (global or per-request based on AUTH_MODE)
+    auth_manager: KiroAuthManager = await get_request_auth_manager(request)
     model_cache: ModelInfoCache = request.app.state.model_cache
     
     # Note: prepare_new_request() and log_request_body() are now called by DebugLoggerMiddleware
