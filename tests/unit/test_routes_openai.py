@@ -135,14 +135,19 @@ class TestVerifyApiKey:
         assert exc_info.value.status_code == 401
     
     @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.create_auth_manager_from_token")
     @patch("kiro.per_request_auth.AUTH_MODE", "per_request")
-    async def test_per_request_mode_valid_token_returns_true(self, mock_request_per_request_mode):
+    async def test_per_request_mode_valid_token_returns_true(self, mock_create_auth_manager, mock_request_per_request_mode):
         """
         What it does: Verifies that a valid Kiro refresh token passes in per_request mode.
         Purpose: Ensure per_request authentication mode works correctly.
         """
         print("Setup: Creating request with Kiro refresh token in per_request mode...")
         
+        mock_manager = Mock()
+        mock_manager.get_access_token = AsyncMock(return_value="test_access_token")
+        mock_create_auth_manager.return_value = mock_manager
+
         print("Action: Calling verify_api_key_or_token...")
         result = await verify_api_key_or_token(mock_request_per_request_mode)
         
@@ -167,6 +172,30 @@ class TestVerifyApiKey:
         print(f"Checking: HTTPException with status 401...")
         assert exc_info.value.status_code == 401
         assert "Missing or invalid Authorization header" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.create_auth_manager_from_token")
+    @patch("kiro.per_request_auth.PROXY_API_KEY", "")
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
+    async def test_proxy_mode_without_proxy_key_auto_switches_to_per_request(
+        self,
+        mock_create_auth_manager,
+    ):
+        """
+        What it does: Verifies proxy_key mode auto-switches to per_request when proxy key is missing.
+        Purpose: Ensure requests are authenticated via Authorization bearer token in auto-switch mode.
+        """
+        request = Mock()
+        request.headers = {"Authorization": "Bearer kiro_refresh_token_auto_switch_987"}
+
+        mock_manager = Mock()
+        mock_manager.get_access_token = AsyncMock(return_value="test_access_token")
+        mock_create_auth_manager.return_value = mock_manager
+
+        result = await verify_api_key_or_token(request)
+
+        assert result is True
+        mock_create_auth_manager.assert_called_once_with("kiro_refresh_token_auto_switch_987")
 
 
 # =============================================================================

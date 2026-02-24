@@ -96,13 +96,63 @@ SERVER_PORT: int = int(os.getenv("SERVER_PORT", str(DEFAULT_SERVER_PORT)))
 # ==================================================================================================
 
 # Authentication mode for the gateway
-# - "proxy_key": Use PROXY_API_KEY for gateway authentication (default, backward compatible)
+# - "proxy_key": Use PROXY_API_KEY for gateway authentication
 # - "per_request": Use Kiro refresh token in Authorization header for each request
-AUTH_MODE: str = os.getenv("AUTH_MODE", "proxy_key").lower()
+#
+# If proxy_key mode is selected but PROXY_API_KEY is not configured,
+# gateway auto-switches to per_request mode.
+_AUTH_MODE_RAW: str = os.getenv("AUTH_MODE", "proxy_key")
+AUTH_MODE: str = _AUTH_MODE_RAW.lower()
 
-# API key for proxy access (clients must pass it in Authorization header)
-# Required when AUTH_MODE="proxy_key", ignored when AUTH_MODE="per_request"
-PROXY_API_KEY: str = os.getenv("PROXY_API_KEY", "my-super-secret-password-123")
+# API key for proxy access (clients pass it via Authorization or x-api-key)
+PROXY_API_KEY: str = os.getenv("PROXY_API_KEY", "my-super-secret-password-123").strip()
+
+# Placeholder/invalid values that mean proxy key is effectively not configured
+_PROXY_API_KEY_PLACEHOLDERS = {
+    "",
+    "changeme_proxy_secret",
+    "****************************",
+}
+
+
+def is_proxy_api_key_configured(proxy_api_key: Optional[str] = None) -> bool:
+    """Return True if proxy API key is explicitly configured (not empty/placeholder)."""
+    key = PROXY_API_KEY if proxy_api_key is None else proxy_api_key
+    if key is None:
+        return False
+
+    normalized = key.strip()
+    if not normalized:
+        return False
+
+    return normalized not in _PROXY_API_KEY_PLACEHOLDERS
+
+
+def get_effective_auth_mode(auth_mode: Optional[str] = None, proxy_api_key: Optional[str] = None) -> str:
+    """
+    Resolve effective authentication mode.
+
+    Rules:
+    - per_request -> per_request
+    - proxy_key with configured PROXY_API_KEY -> proxy_key
+    - proxy_key without configured PROXY_API_KEY -> per_request (auto-switch)
+    """
+    mode = (AUTH_MODE if auth_mode is None else auth_mode).strip().lower()
+    if mode not in ("proxy_key", "per_request"):
+        mode = "proxy_key"
+
+    if mode == "per_request":
+        return "per_request"
+
+    return "proxy_key" if is_proxy_api_key_configured(proxy_api_key) else "per_request"
+
+
+def is_auth_mode_auto_switched(auth_mode: Optional[str] = None, proxy_api_key: Optional[str] = None) -> bool:
+    """Return True when configured proxy_key mode is auto-resolved to per_request."""
+    mode = (AUTH_MODE if auth_mode is None else auth_mode).strip().lower()
+    if mode != "proxy_key":
+        return False
+    return get_effective_auth_mode(mode, proxy_api_key) == "per_request"
 
 # ==================================================================================================
 # VPN/Proxy Settings for Kiro API Access

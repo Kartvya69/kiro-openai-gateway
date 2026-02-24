@@ -75,24 +75,53 @@ class TestVerifyAnthropicApiKey:
         assert result is True
     
     @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.PROXY_API_KEY", "test_proxy_key")
     @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
-    async def test_x_api_key_takes_precedence(self):
+    async def test_authorization_per_request_override_takes_precedence_over_x_api_key(self):
         """
-        What it does: Verifies x-api-key is checked before Authorization header.
-        Purpose: Ensure Anthropic native auth has priority in proxy_key mode.
+        What it does: Verifies Authorization per-request token takes precedence over valid x-api-key.
+        Purpose: Ensure per-request override behavior is enforced in proxy_key mode.
         """
-        print("Setup: Both headers provided, x-api-key is valid...")
+        print("Setup: Both headers provided, x-api-key is valid, Authorization has invalid per-request token...")
         request = Mock()
         request.headers = {
-            "x-api-key": PROXY_API_KEY,
-            "Authorization": "Bearer wrong_key"
+            "x-api-key": "test_proxy_key",
+            "Authorization": "Bearer invalid_user_refresh_token"
         }
         
         print("Action: Calling verify_api_key_or_token with both headers...")
-        result = await verify_api_key_or_token(request)
+        with pytest.raises(HTTPException) as exc_info:
+            await verify_api_key_or_token(request)
         
-        print(f"Comparing result: Expected True, Got {result}")
+        assert exc_info.value.status_code == 401
+        assert "Invalid Kiro refresh token" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.create_auth_manager_from_token")
+    @patch("kiro.per_request_auth.PROXY_API_KEY", "test_proxy_key")
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
+    async def test_authorization_per_request_override_with_valid_token_returns_true(
+        self,
+        mock_create_auth_manager,
+    ):
+        """
+        What it does: Verifies valid per-request Authorization succeeds even when x-api-key is present.
+        Purpose: Ensure per-request override works for Anthropic compatibility path.
+        """
+        request = Mock()
+        request.headers = {
+            "x-api-key": "test_proxy_key",
+            "Authorization": "Bearer valid_user_refresh_token"
+        }
+
+        mock_manager = Mock()
+        mock_manager.get_access_token = AsyncMock(return_value="test_access_token")
+        mock_create_auth_manager.return_value = mock_manager
+
+        result = await verify_api_key_or_token(request)
+
         assert result is True
+        mock_create_auth_manager.assert_called_once_with("valid_user_refresh_token")
     
     @pytest.mark.asyncio
     @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
@@ -149,8 +178,9 @@ class TestVerifyAnthropicApiKey:
         assert exc_info.value.status_code == 401
     
     @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.create_auth_manager_from_token")
     @patch("kiro.per_request_auth.AUTH_MODE", "per_request")
-    async def test_per_request_mode_valid_kiro_token_returns_true(self):
+    async def test_per_request_mode_valid_kiro_token_returns_true(self, mock_create_auth_manager):
         """
         What it does: Verifies that a valid Kiro refresh token passes in per_request mode.
         Purpose: Ensure per_request authentication mode works correctly.
@@ -158,6 +188,10 @@ class TestVerifyAnthropicApiKey:
         print("Setup: Creating request with Kiro refresh token in per_request mode...")
         request = Mock()
         request.headers = {"Authorization": "Bearer kiro_refresh_token_123"}
+
+        mock_manager = Mock()
+        mock_manager.get_access_token = AsyncMock(return_value="test_access_token")
+        mock_create_auth_manager.return_value = mock_manager
         
         print("Action: Calling verify_api_key_or_token...")
         result = await verify_api_key_or_token(request)
@@ -184,6 +218,23 @@ class TestVerifyAnthropicApiKey:
         detail = exc_info.value.detail
         assert "error" in detail
         assert detail["error"]["type"] == "authentication_error"
+
+    @pytest.mark.asyncio
+    @patch("kiro.per_request_auth.PROXY_API_KEY", "")
+    @patch("kiro.per_request_auth.AUTH_MODE", "proxy_key")
+    async def test_auto_switched_per_request_rejects_x_api_key_only(self):
+        """
+        What it does: Verifies x-api-key alone is rejected when proxy mode auto-switches to per_request.
+        Purpose: Ensure Authorization Bearer is required in effective per_request mode.
+        """
+        request = Mock()
+        request.headers = {"x-api-key": "anything"}
+
+        with pytest.raises(HTTPException) as exc_info:
+            await verify_api_key_or_token(request)
+
+        assert exc_info.value.status_code == 401
+        assert "Missing or invalid Authorization header" in str(exc_info.value.detail)
 
 
 # =============================================================================
@@ -1010,8 +1061,9 @@ class TestMessagesErrorFormat:
         data = response.json()
         assert "detail" in data
         detail = data["detail"]
-        assert "type" in detail
         assert "error" in detail
+        assert detail["error"]["type"] == "authentication_error"
+        assert "message" in detail["error"]
 
 
 # =============================================================================

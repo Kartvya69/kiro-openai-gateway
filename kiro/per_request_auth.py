@@ -34,7 +34,7 @@ from fastapi.security import APIKeyHeader
 from loguru import logger
 
 from kiro.auth import KiroAuthManager
-from kiro.config import AUTH_MODE, PROXY_API_KEY
+from kiro.config import AUTH_MODE, PROXY_API_KEY, get_effective_auth_mode
 
 
 # Security scheme for extracting Authorization header
@@ -187,6 +187,31 @@ def create_auth_manager_from_token(refresh_token: str) -> KiroAuthManager:
     )
 
 
+def _resolve_effective_auth_mode() -> str:
+    """Resolve effective auth mode with auto-switch support."""
+    return get_effective_auth_mode(auth_mode=AUTH_MODE, proxy_api_key=PROXY_API_KEY)
+
+
+def _should_treat_as_per_request_token(
+    bearer_token: Optional[str],
+    effective_auth_mode: str,
+) -> bool:
+    """
+    Determine whether Authorization bearer token should be treated as per-request auth.
+
+    Rules:
+    - In effective per_request mode: any bearer token is per-request auth
+    - In effective proxy_key mode: bearer token is per-request auth only if it differs from PROXY_API_KEY
+    """
+    if not bearer_token:
+        return False
+
+    if effective_auth_mode == "per_request":
+        return True
+
+    return bearer_token != PROXY_API_KEY
+
+
 async def get_request_auth_manager(request: Request) -> KiroAuthManager:
     """
     Get the auth manager for the current request.
@@ -204,19 +229,21 @@ async def get_request_auth_manager(request: Request) -> KiroAuthManager:
     Raises:
         HTTPException: 401 if authentication fails
     """
-    # Mode 1: Proxy key mode - use global auth manager
-    if AUTH_MODE != "per_request":
-        if not hasattr(request.app.state, 'auth_manager'):
+    auth_header_value = request.headers.get("Authorization")
+    refresh_token = extract_bearer_token(auth_header_value)
+    effective_auth_mode = _resolve_effective_auth_mode()
+
+    # Proxy key path: use global auth manager unless Authorization is per-request override
+    if effective_auth_mode == "proxy_key" and not _should_treat_as_per_request_token(refresh_token, effective_auth_mode):
+        if not hasattr(request.app.state, 'auth_manager') or request.app.state.auth_manager is None:
             logger.error("Global auth manager not initialized")
             raise HTTPException(
                 status_code=500,
                 detail="Server configuration error: auth manager not initialized"
             )
         return request.app.state.auth_manager
-    
-    # Mode 2: Per-request mode - extract token from header
-    auth_header_value = request.headers.get("Authorization")
-    refresh_token = extract_bearer_token(auth_header_value)
+
+    # Per-request path (explicit mode or Authorization override)
     
     if not refresh_token:
         raise HTTPException(
@@ -269,30 +296,19 @@ async def verify_api_key_or_token(request: Request) -> bool:
     Raises:
         HTTPException: 401 if authentication fails
     """
-    # Per-request mode: validate the Kiro refresh token by attempting to get an access token
-    if AUTH_MODE == "per_request":
-        auth_header_value = request.headers.get("Authorization")
-        refresh_token = extract_bearer_token(auth_header_value)
-        
-        if not refresh_token:
-            raise HTTPException(
-                status_code=401,
-                detail={
-                    "error": {
-                        "type": "authentication_error",
-                        "message": "Missing or invalid Authorization header. Expected: 'Bearer <kiro_refresh_token>'"
-                    }
-                }
-            )
-        
+    auth_header_value = request.headers.get("Authorization")
+    refresh_token = extract_bearer_token(auth_header_value)
+    effective_auth_mode = _resolve_effective_auth_mode()
+
+    # Per-request auth path (explicit mode OR Authorization override in proxy mode)
+    if _should_treat_as_per_request_token(refresh_token, effective_auth_mode):
         # Try to get cached auth manager first
         auth_manager = get_cached_auth_manager(refresh_token)
-        
+
         if auth_manager is None:
             # Create new auth manager and validate the token by attempting refresh
             try:
                 auth_manager = create_auth_manager_from_token(refresh_token)
-                # Actually validate the token by attempting to get an access token
                 await auth_manager.get_access_token()
                 cache_auth_manager(refresh_token, auth_manager)
                 logger.debug("Validated and cached per-request auth manager")
@@ -313,7 +329,6 @@ async def verify_api_key_or_token(request: Request) -> bool:
                 await auth_manager.get_access_token()
             except Exception as e:
                 logger.warning(f"Cached token validation failed: {e}")
-                # Remove from cache and try again
                 token_hash = _hash_token(refresh_token)
                 _auth_manager_cache.pop(token_hash, None)
                 raise HTTPException(
@@ -325,19 +340,30 @@ async def verify_api_key_or_token(request: Request) -> bool:
                         }
                     }
                 )
-        
+
         return True
-    
-    # Proxy key mode: validate PROXY_API_KEY
-    auth_header_value = request.headers.get("Authorization")
+
+    # Effective per_request mode without bearer token
+    if effective_auth_mode == "per_request":
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": {
+                    "type": "authentication_error",
+                    "message": "Missing or invalid Authorization header. Expected: 'Bearer <kiro_refresh_token>'"
+                }
+            }
+        )
+
+    # Effective proxy_key mode: validate PROXY_API_KEY
     if auth_header_value and auth_header_value == f"Bearer {PROXY_API_KEY}":
         return True
-    
-    # Also support x-api-key header for Anthropic compatibility
+
+    # x-api-key is supported for proxy auth compatibility (Anthropic style)
     x_api_key = request.headers.get("x-api-key")
     if x_api_key and x_api_key == PROXY_API_KEY:
         return True
-    
+
     logger.warning("Access attempt with invalid API key")
     raise HTTPException(
         status_code=401,

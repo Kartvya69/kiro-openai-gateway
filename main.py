@@ -63,6 +63,8 @@ from kiro.config import (
     KIRO_CLI_DB_FILE,
     PROXY_API_KEY,
     AUTH_MODE,
+    get_effective_auth_mode,
+    is_auth_mode_auto_switched,
     LOG_LEVEL,
     SERVER_HOST,
     SERVER_PORT,
@@ -218,8 +220,16 @@ def validate_configuration() -> None:
     # Check if .env file exists (optional - can use environment variables)
     env_file = Path(".env")
     
+    effective_auth_mode = get_effective_auth_mode(AUTH_MODE, PROXY_API_KEY)
+
+    if is_auth_mode_auto_switched(AUTH_MODE, PROXY_API_KEY):
+        logger.warning(
+            "Authentication mode auto-switched: AUTH_MODE=proxy_key but PROXY_API_KEY is not configured. "
+            "Using per_request mode."
+        )
+
     # Per-request mode: no global credentials needed
-    if AUTH_MODE == "per_request":
+    if effective_auth_mode == "per_request":
         logger.info("Authentication mode: per_request (clients provide their own Kiro credentials)")
         # In per_request mode, we still allow global credentials for model loading at startup
         # but they're not required
@@ -353,9 +363,16 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Shared HTTP client created with connection pooling")
     
-    # Create AuthManager (only for proxy_key mode)
+    effective_auth_mode = get_effective_auth_mode(AUTH_MODE, PROXY_API_KEY)
+
+    if is_auth_mode_auto_switched(AUTH_MODE, PROXY_API_KEY):
+        logger.warning(
+            "Authentication mode auto-switched to per_request at runtime because PROXY_API_KEY is not configured"
+        )
+
+    # Create AuthManager (only for effective proxy_key mode)
     # In per_request mode, auth managers are created per-request from client tokens
-    if AUTH_MODE == "proxy_key":
+    if effective_auth_mode == "proxy_key":
         # Priority: SQLite DB > JSON file > environment variables
         app.state.auth_manager = KiroAuthManager(
             refresh_token=REFRESH_TOKEN,
@@ -375,7 +392,7 @@ async def lifespan(app: FastAPI):
     
     # BLOCKING: Load models from Kiro API at startup (only in proxy_key mode)
     # In per_request mode, we use fallback models since we don't have global credentials
-    if AUTH_MODE == "proxy_key":
+    if effective_auth_mode == "proxy_key":
         logger.info("Loading models from Kiro API...")
         try:
             token = await app.state.auth_manager.get_access_token()
