@@ -3746,6 +3746,10 @@ class TestBuildKiroHistory:
         assert "userInputMessage" in result[0]
         assert result[0]["userInputMessage"]["content"] == "Hello"
         assert result[0]["userInputMessage"]["modelId"] == "claude-sonnet-4"
+        assert result[0]["userInputMessage"]["origin"] == "KIRO_CLI"
+        context = result[0]["userInputMessage"].get("userInputMessageContext", {})
+        assert "envState" in context
+        assert context["envState"]["operatingSystem"] == "unknown"
     
     def test_builds_assistant_message(self):
         """
@@ -3845,6 +3849,7 @@ class TestBuildKiroHistory:
         assert "userInputMessage" in result[0]
         user_msg = result[0]["userInputMessage"]
         assert "userInputMessageContext" in user_msg
+        assert "envState" in user_msg["userInputMessageContext"]
         assert "toolResults" in user_msg["userInputMessageContext"]
     
     def test_builds_assistant_message_with_tool_calls(self):

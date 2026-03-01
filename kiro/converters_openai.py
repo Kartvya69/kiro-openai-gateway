@@ -299,7 +299,8 @@ def convert_openai_tools_to_unified(tools: Optional[List[Tool]]) -> Optional[Lis
 def build_kiro_payload(
     request_data: ChatCompletionRequest,
     conversation_id: str,
-    profile_arn: str
+    profile_arn: str,
+    env_state: Optional[Dict[str, Any]] = None
 ) -> dict:
     """
     Builds complete payload for Kiro API from OpenAI request.
@@ -311,6 +312,7 @@ def build_kiro_payload(
         request_data: Request in OpenAI format
         conversation_id: Unique conversation ID
         profile_arn: AWS CodeWhisperer profile ARN
+        env_state: Optional environment metadata for request.txt-compatible context
     
     Returns:
         Payload dictionary for POST request to Kiro API
@@ -342,7 +344,10 @@ def build_kiro_payload(
         tools=unified_tools,
         conversation_id=conversation_id,
         profile_arn=profile_arn,
-        inject_thinking=True
+        inject_thinking=True,
+        origin="KIRO_CLI",
+        env_state=env_state,
+        agent_task_type="vibe",
     )
     
     return result.payload

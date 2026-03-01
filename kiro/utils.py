@@ -27,7 +27,7 @@ and other common utilities.
 import hashlib
 import json
 import uuid
-from typing import TYPE_CHECKING, List, Dict, Any
+from typing import TYPE_CHECKING, List, Dict, Any, Optional
 
 from loguru import logger
 
@@ -58,34 +58,46 @@ def get_machine_fingerprint() -> str:
         return hashlib.sha256(b"default-kiro-gateway").hexdigest()
 
 
-def get_kiro_headers(auth_manager: "KiroAuthManager", token: str) -> dict:
+def get_kiro_headers(
+    auth_manager: "KiroAuthManager",
+    token: str,
+    *,
+    target: Optional[str] = "AmazonCodeWhispererStreamingService.GenerateAssistantResponse"
+) -> dict:
     """
     Builds headers for Kiro API requests.
     
-    Includes all necessary headers for authentication and identification:
-    - Authorization with Bearer token
-    - User-Agent with fingerprint
-    - AWS CodeWhisperer specific headers
+    Includes all necessary headers for authentication and identification.
+    Header defaults are aligned with the native request.txt style capture.
     
     Args:
         auth_manager: Authentication manager for obtaining fingerprint
         token: Access token for authorization
+        target: Optional x-amz-target value for AWS RPC endpoints.
+                Pass None for endpoints that don't use x-amz-target (e.g. ListAvailableModels GET).
     
     Returns:
         Dictionary with headers for HTTP request
     """
     fingerprint = auth_manager.fingerprint
     
-    return {
+    headers = {
         "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
+        "Content-Type": "application/x-amz-json-1.0",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip",
         "User-Agent": f"aws-sdk-js/1.0.27 ua/2.1 os/win32#10.0.19044 lang/js md/nodejs#22.21.1 api/codewhispererstreaming#1.0.27 m/E KiroIDE-0.7.45-{fingerprint}",
-        "x-amz-user-agent": f"aws-sdk-js/1.0.27 KiroIDE-0.7.45-{fingerprint}",
-        "x-amzn-codewhisperer-optout": "true",
+        "x-amz-user-agent": f"aws-sdk-js/1.0.27 ua/2.1 api/codewhispererstreaming#1.0.27 m/E KiroIDE-0.7.45-{fingerprint}",
+        "x-amzn-codewhisperer-optout": "false",
         "x-amzn-kiro-agent-mode": "vibe",
         "amz-sdk-invocation-id": str(uuid.uuid4()),
         "amz-sdk-request": "attempt=1; max=3",
     }
+    
+    if target:
+        headers["x-amz-target"] = target
+    
+    return headers
 
 
 def generate_completion_id() -> str:

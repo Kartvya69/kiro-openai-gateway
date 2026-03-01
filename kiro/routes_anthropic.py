@@ -26,6 +26,8 @@ Reference: https://docs.anthropic.com/en/api/messages
 """
 
 import json
+import os
+import platform
 from typing import Optional
 
 import httpx
@@ -51,6 +53,19 @@ from kiro.streaming_anthropic import (
 from kiro.http_client import KiroHttpClient
 from kiro.utils import generate_conversation_id
 from kiro.tokenizer import count_tools_tokens
+
+
+def _build_env_state() -> dict:
+    """
+    Build request.txt-compatible envState block for upstream Kiro requests.
+
+    Returns:
+        Dictionary with operatingSystem and currentWorkingDirectory fields
+    """
+    return {
+        "operatingSystem": platform.system().lower() or os.name,
+        "currentWorkingDirectory": os.getcwd(),
+    }
 
 # Import debug_logger
 try:
@@ -260,7 +275,8 @@ async def messages(
         kiro_payload = anthropic_to_kiro(
             request_data,
             conversation_id,
-            profile_arn_for_payload
+            profile_arn_for_payload,
+            env_state=_build_env_state(),
         )
     except ValueError as e:
         logger.error(f"Conversion error: {e}")
@@ -311,7 +327,8 @@ async def messages(
             "POST",
             url,
             kiro_payload,
-            stream=True
+            stream=True,
+            target="AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
         )
         
         if response.status_code != 200:

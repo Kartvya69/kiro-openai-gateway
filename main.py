@@ -356,7 +356,7 @@ async def lifespan(app: FastAPI):
         token = await app.state.auth_manager.get_access_token()
         from kiro.utils import get_kiro_headers
         from kiro.auth import AuthType
-        headers = get_kiro_headers(app.state.auth_manager, token)
+        headers = get_kiro_headers(app.state.auth_manager, token, target=None)
         
         # Build params - profileArn is only needed for Kiro Desktop auth
         params = {"origin": "AI_EDITOR"}

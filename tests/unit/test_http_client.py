@@ -1135,7 +1135,7 @@ class TestKiroHttpClientConnectionCloseHeader:
         
         original_headers = {
             "Authorization": "Bearer test_token",
-            "Content-Type": "application/json",
+            "Content-Type": "application/x-amz-json-1.0",
             "X-Custom-Header": "custom_value"
         }
         
@@ -1152,7 +1152,7 @@ class TestKiroHttpClientConnectionCloseHeader:
         print("Verification: All original headers preserved plus Connection: close...")
         print(f"Captured headers: {captured_headers}")
         assert captured_headers["Authorization"] == "Bearer test_token"
-        assert captured_headers["Content-Type"] == "application/json"
+        assert captured_headers["Content-Type"] == "application/x-amz-json-1.0"
         assert captured_headers["X-Custom-Header"] == "custom_value"
         assert captured_headers["Connection"] == "close"
         assert response.status_code == 200

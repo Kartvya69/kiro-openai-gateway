@@ -370,7 +370,10 @@ def convert_anthropic_tools(
 
 
 def anthropic_to_kiro(
-    request: AnthropicMessagesRequest, conversation_id: str, profile_arn: str
+    request: AnthropicMessagesRequest,
+    conversation_id: str,
+    profile_arn: str,
+    env_state: Optional[Dict[str, Any]] = None
 ) -> dict:
     """
     Converts Anthropic Messages API request to Kiro API payload.
@@ -386,6 +389,7 @@ def anthropic_to_kiro(
         request: Anthropic MessagesRequest
         conversation_id: Unique conversation ID
         profile_arn: AWS CodeWhisperer profile ARN
+        env_state: Optional environment metadata for request.txt-compatible context
 
     Returns:
         Payload dictionary for POST request to Kiro API
@@ -422,6 +426,9 @@ def anthropic_to_kiro(
         conversation_id=conversation_id,
         profile_arn=profile_arn,
         inject_thinking=True,
+        origin="KIRO_CLI",
+        env_state=env_state,
+        agent_task_type="vibe",
     )
 
     return result.payload

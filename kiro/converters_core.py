@@ -1252,7 +1252,12 @@ def ensure_alternating_roles(messages: List[UnifiedMessage]) -> List[UnifiedMess
 # Kiro History Building
 # ==================================================================================================
 
-def build_kiro_history(messages: List[UnifiedMessage], model_id: str) -> List[Dict[str, Any]]:
+def build_kiro_history(
+    messages: List[UnifiedMessage],
+    model_id: str,
+    origin: str = "KIRO_CLI",
+    env_state: Optional[Dict[str, Any]] = None
+) -> List[Dict[str, Any]]:
     """
     Builds history array for Kiro API from unified messages.
     
@@ -1265,10 +1270,18 @@ def build_kiro_history(messages: List[UnifiedMessage], model_id: str) -> List[Di
     Args:
         messages: List of messages in unified format (with normalized roles)
         model_id: Internal Kiro model ID
+        origin: Source marker for upstream request origin
+        env_state: Environment metadata to inject into userInputMessageContext
     
     Returns:
         List of dictionaries for history field in Kiro API
     """
+    if env_state is None:
+        env_state = {
+            "operatingSystem": "unknown",
+            "currentWorkingDirectory": "unknown",
+        }
+
     history = []
     
     for msg in messages:
@@ -1282,7 +1295,7 @@ def build_kiro_history(messages: List[UnifiedMessage], model_id: str) -> List[Di
             user_input = {
                 "content": content,
                 "modelId": model_id,
-                "origin": "AI_EDITOR",
+                "origin": origin,
             }
             
             # Process images - extract from message or content
@@ -1294,8 +1307,10 @@ def build_kiro_history(messages: List[UnifiedMessage], model_id: str) -> List[Di
                 if kiro_images:
                     user_input["images"] = kiro_images
             
-            # Build userInputMessageContext for tools and toolResults only
-            user_input_context: Dict[str, Any] = {}
+            # Build userInputMessageContext with envState + optional toolResults
+            user_input_context: Dict[str, Any] = {
+                "envState": env_state,
+            }
             
             # Process tool_results - convert to Kiro format if present
             if msg.tool_results:
@@ -1344,7 +1359,10 @@ def build_kiro_payload(
     tools: Optional[List[UnifiedTool]],
     conversation_id: str,
     profile_arn: str,
-    inject_thinking: bool = True
+    inject_thinking: bool = True,
+    origin: str = "KIRO_CLI",
+    env_state: Optional[Dict[str, Any]] = None,
+    agent_task_type: str = "vibe"
 ) -> KiroPayloadResult:
     """
     Builds complete payload for Kiro API from unified data.
@@ -1360,6 +1378,9 @@ def build_kiro_payload(
         conversation_id: Unique conversation ID
         profile_arn: AWS CodeWhisperer profile ARN
         inject_thinking: Whether to inject thinking tags (default True)
+        origin: Origin marker for userInputMessage blocks
+        env_state: Environment metadata for userInputMessageContext.envState
+        agent_task_type: Value for conversationState.agentTaskType
     
     Returns:
         KiroPayloadResult with payload and tool documentation
@@ -1367,6 +1388,12 @@ def build_kiro_payload(
     Raises:
         ValueError: If there are no messages to send
     """
+    if env_state is None:
+        env_state = {
+            "operatingSystem": "unknown",
+            "currentWorkingDirectory": "unknown",
+        }
+
     # Process tools with long descriptions
     processed_tools, tool_documentation = process_tools_with_long_descriptions(tools)
     
@@ -1427,7 +1454,12 @@ def build_kiro_payload(
             original_content = extract_text_content(first_msg.content)
             first_msg.content = f"{full_system_prompt}\n\n{original_content}"
     
-    history = build_kiro_history(history_messages, model_id)
+    history = build_kiro_history(
+        history_messages,
+        model_id,
+        origin=origin,
+        env_state=env_state,
+    )
     
     # Current message (the last one)
     current_message = merged_messages[-1]
@@ -1461,8 +1493,10 @@ def build_kiro_payload(
         if kiro_images:
             logger.debug(f"Added {len(kiro_images)} image(s) to current message")
     
-    # Build user_input_context for tools and toolResults only (NOT images)
-    user_input_context: Dict[str, Any] = {}
+    # Build user_input_context with envState + optional tools/toolResults (NOT images)
+    user_input_context: Dict[str, Any] = {
+        "envState": env_state,
+    }
     
     # Add tools if present
     kiro_tools = convert_tools_to_kiro_format(processed_tools)
@@ -1489,7 +1523,7 @@ def build_kiro_payload(
     user_input_message = {
         "content": current_content,
         "modelId": model_id,
-        "origin": "AI_EDITOR",
+        "origin": origin,
     }
     
     # Add images directly to userInputMessage (NOT to userInputMessageContext)
@@ -1503,11 +1537,13 @@ def build_kiro_payload(
     # Assemble final payload
     payload = {
         "conversationState": {
-            "chatTriggerType": "MANUAL",
             "conversationId": conversation_id,
             "currentMessage": {
                 "userInputMessage": user_input_message
-            }
+            },
+            "chatTriggerType": "MANUAL",
+            "agentContinuationId": conversation_id,
+            "agentTaskType": agent_task_type,
         }
     }
     

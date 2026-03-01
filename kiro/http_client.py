@@ -171,7 +171,8 @@ class KiroHttpClient:
         method: str,
         url: str,
         json_data: dict,
-        stream: bool = False
+        stream: bool = False,
+        target: Optional[str] = "AmazonCodeWhispererStreamingService.GenerateAssistantResponse"
     ) -> httpx.Response:
         """
         Executes an HTTP request with retry logic.
@@ -190,6 +191,7 @@ class KiroHttpClient:
             url: Request URL
             json_data: Request body (JSON)
             stream: Use streaming (default False)
+            target: Optional x-amz-target value for AWS RPC endpoints
         
         Returns:
             httpx.Response with successful response
@@ -209,7 +211,7 @@ class KiroHttpClient:
             try:
                 # Get current token
                 token = await self.auth_manager.get_access_token()
-                headers = get_kiro_headers(self.auth_manager, token)
+                headers = get_kiro_headers(self.auth_manager, token, target=target)
                 
                 if stream:
                     # Prevent CLOSE_WAIT connection leak (issue #38)

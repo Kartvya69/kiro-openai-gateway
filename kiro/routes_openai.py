@@ -27,6 +27,8 @@ Contains all API endpoints:
 """
 
 import json
+import os
+import platform
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, Security
@@ -50,6 +52,19 @@ from kiro.converters_openai import build_kiro_payload
 from kiro.streaming_openai import stream_kiro_to_openai, collect_stream_response, stream_with_first_token_retry
 from kiro.http_client import KiroHttpClient
 from kiro.utils import generate_conversation_id
+
+
+def _build_env_state() -> dict:
+    """
+    Build request.txt-compatible envState block for upstream Kiro requests.
+
+    Returns:
+        Dictionary with operatingSystem and currentWorkingDirectory fields
+    """
+    return {
+        "operatingSystem": platform.system().lower() or os.name,
+        "currentWorkingDirectory": os.getcwd(),
+    }
 
 # Import debug_logger
 try:
@@ -243,7 +258,8 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
         kiro_payload = build_kiro_payload(
             request_data,
             conversation_id,
-            profile_arn_for_payload
+            profile_arn_for_payload,
+            env_state=_build_env_state(),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -278,7 +294,8 @@ async def chat_completions(request: Request, request_data: ChatCompletionRequest
             "POST",
             url,
             kiro_payload,
-            stream=True
+            stream=True,
+            target="AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
         )
         
         if response.status_code != 200:

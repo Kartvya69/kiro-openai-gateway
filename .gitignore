@@ -2,6 +2,9 @@
 .env
 .env.local
 
+# Credentials
+kiro-creds.json
+
 # IDE
 .vscode/
 .idea/
